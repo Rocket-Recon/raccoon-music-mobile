@@ -2,7 +2,6 @@ package com.raccoon.music;
 
 import android.content.Intent;
 
-import androidx.annotation.Nullable;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
 import androidx.media3.common.Player;
@@ -32,14 +31,13 @@ public class PlaybackService extends MediaSessionService {
         sessao = new MediaSession.Builder(this, player).build();
     }
 
-    @Nullable
     @Override
     public MediaSession onGetSession(MediaSession.ControllerInfo controlador) {
         return sessao;
     }
 
     @Override
-    public void onTaskRemoved(@Nullable Intent rootIntent) {
+    public void onTaskRemoved(Intent rootIntent) {
         Player p = sessao.getPlayer();
         if (!p.getPlayWhenReady() || p.getMediaItemCount() == 0) stopSelf();  // pausado e fechado: encerra
     }
