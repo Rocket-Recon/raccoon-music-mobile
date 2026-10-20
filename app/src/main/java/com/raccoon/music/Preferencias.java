@@ -35,6 +35,23 @@ public final class Preferencias {
         if (s.addAll(novas)) sp.edit().putStringSet("curtidas", s).apply();
     }
 
+    /** A musica foi renomeada: a curtida acompanha o novo nome. */
+    public void renomearCurtida(String antiga, String nova) {
+        Set<String> s = curtidas();
+        if (s.remove(antiga)) {
+            s.add(nova);
+            sp.edit().putStringSet("curtidas", s).apply();
+        }
+    }
+
+    /** Cores escolhidas (0 = padrao). */
+    public int corFundo() { return sp.getInt("cor_fundo", 0); }
+    public int corAcento() { return sp.getInt("cor_acento", 0); }
+    public void cores(int fundo, int acento) { sp.edit().putInt("cor_fundo", fundo).putInt("cor_acento", acento).apply(); }
+
+    public String historico() { return sp.getString("historico", ""); }
+    public void historico(String texto) { sp.edit().putString("historico", texto).apply(); }
+
     public boolean embaralhar() { return sp.getBoolean("embaralhar", false); }
     public void embaralhar(boolean v) { sp.edit().putBoolean("embaralhar", v).apply(); }
 

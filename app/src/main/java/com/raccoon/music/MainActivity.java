@@ -57,8 +57,8 @@ import java.util.Set;
 
 /** A tela unica do app: biblioteca com pesquisa em cima e o player embaixo. */
 public class MainActivity extends Activity {
-    private static final int ACENTO = 0xFFE9532E, FUNDO = 0xFF18181B, CARTAO = 0xFF222228, LINHA = 0xFF2C2C36;
-    private static final int TEXTO = 0xFFFFFFFF, SUAVE = 0xFF9A9AA6, ICONE = 0xFFC8C8D0;
+    private int ACENTO, FUNDO, CARTAO, LINHA, TEXTO, SUAVE, ICONE;
+    private boolean temaClaro = false;
     private static final int PEDIDO_PASTA = 11, PEDIDO_NOTIFICACAO = 12;
 
     private final Handler ui = new Handler(Looper.getMainLooper());
@@ -70,20 +70,23 @@ public class MainActivity extends Activity {
     private final Map<String, Faixa> porUri = new HashMap<>();
     private final Map<String, Integer> posicao = new HashMap<>();
     private Set<String> curtidas;
-    private static final int SECAO_MUSICAS = 0, SECAO_ARTISTAS = 1, SECAO_CURTIDAS = 2;
-    private static final String[] NOMES_SECAO = {"Músicas", "Artistas", "Curtidas"};
+    private static final int SECAO_MUSICAS = 0, SECAO_ARTISTAS = 1, SECAO_CURTIDAS = 2, SECAO_RECENTES = 3, SECAO_MAIS = 4;
+    private static final String[] NOMES_SECAO = {"Músicas", "Artistas", "Curtidas", "Tocadas recentemente", "Mais tocadas"};
     private int secao = SECAO_MUSICAS;
     private boolean soCurtidas = false;
     private View cortina, gaveta;
     private boolean gavetaAberta = false;
     private float toqueX = -1;
-    private final TextView[] itensSecao = new TextView[3];
+    private final TextView[] itensSecao = new TextView[5];
     private TextView itemPlaylists, itemTemporizador, itemVersao;
     private boolean avisouAtualizacao = false;
     private boolean varrendo = false;
     private boolean modoArtistas = false;
     private List<String[]> artistasVisiveis = new ArrayList<>();
     private int errosSeguidos = 0;
+    private Historico historico = new Historico();
+    private long tocadoMs = 0;
+    private boolean contouEssa = false;
     private Sincronizacao sincronizacao = new Sincronizacao();
     private final Map<String, Faixa> porChave = new HashMap<>();
     private Runnable desligar;
@@ -107,9 +110,9 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle estado) {
         super.onCreate(estado);
-        getWindow().setStatusBarColor(FUNDO);
-        getWindow().setNavigationBarColor(CARTAO);
         prefs = new Preferencias(this);
+        aplicarPaleta();
+        historico = Historico.ler(prefs.historico());
         curtidas = prefs.curtidas();
         setContentView(montarTela());
 
@@ -167,7 +170,11 @@ public class MainActivity extends Activity {
         if (pedido == PEDIDO_PASTA && resultado == RESULT_OK && dados != null && dados.getData() != null) {
             Uri arvore = dados.getData();
             try {
-                getContentResolver().takePersistableUriPermission(arvore, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                try {
+                    getContentResolver().takePersistableUriPermission(arvore, Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                } catch (Exception semEscrita) {
+                    getContentResolver().takePersistableUriPermission(arvore, Intent.FLAG_GRANT_READ_URI_PERMISSION);  // pendrive protegido: so ler
+                }
             } catch (Exception e) {
                 // alguns seletores nao deixam guardar a permissao: vale so ate fechar o app
             }
@@ -179,7 +186,7 @@ public class MainActivity extends Activity {
     // ------------------------------------------------------------------ biblioteca
     private void escolherPasta() {
         Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
-        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
         try {
             startActivityForResult(i, PEDIDO_PASTA);
         } catch (Exception e) {
@@ -234,7 +241,8 @@ public class MainActivity extends Activity {
 
     private void aplicarFiltro() {
         String texto = edtBusca == null ? "" : edtBusca.getText().toString();
-        visiveis = Catalogo.filtrar(todas, texto, curtidas, soCurtidas);
+        List<Faixa> base = secao == SECAO_RECENTES ? historico.recentes(todas, 300) : secao == SECAO_MAIS ? historico.maisTocadas(todas, 300) : todas;
+        visiveis = Catalogo.filtrar(base, texto, curtidas, soCurtidas);
         artistasVisiveis = Catalogo.artistas(soCurtidas ? visiveis : todas, texto);
         if (adaptador != null) adaptador.notifyDataSetChanged();
         int n = todas.size();
@@ -257,7 +265,10 @@ public class MainActivity extends Activity {
             lblVazio.setText(prefs.arvore() == null ? "Escolha a pasta das suas músicas" : "Nenhuma música por aqui");
             lblVazio.setVisibility(View.VISIBLE);
         } else if (modoArtistas ? artistasVisiveis.isEmpty() : visiveis.isEmpty()) {
-            lblVazio.setText(soCurtidas && edtBusca.getText().length() == 0 ? "Você ainda não curtiu nenhuma música" : "Nada encontrado");
+            boolean semBusca = edtBusca.getText().length() == 0;
+            lblVazio.setText(semBusca && soCurtidas ? "Você ainda não curtiu nenhuma música"
+                    : semBusca && (secao == SECAO_RECENTES || secao == SECAO_MAIS) ? "Você ainda não ouviu nenhuma música por aqui"
+                    : "Nada encontrado");
             lblVazio.setVisibility(View.VISIBLE);
         } else {
             lblVazio.setVisibility(View.GONE);
@@ -288,7 +299,11 @@ public class MainActivity extends Activity {
             public void onEvents(Player p, Player.Events eventos) {
                 if (p.isPlaying()) errosSeguidos = 0;
                 atualizarPlayer();
-                if (eventos.contains(Player.EVENT_MEDIA_ITEM_TRANSITION)) salvarUltimo();
+                if (eventos.contains(Player.EVENT_MEDIA_ITEM_TRANSITION)) {
+                    tocadoMs = 0;
+                    contouEssa = false;
+                    salvarUltimo();
+                }
             }
         });
         restaurar();
@@ -423,7 +438,7 @@ public class MainActivity extends Activity {
         if (player == null) return;
         MediaItem mi = player.getCurrentMediaItem();
         boolean tocando = player.getPlayWhenReady() && player.getPlaybackState() != Player.STATE_ENDED && player.getPlaybackState() != Player.STATE_IDLE;
-        icPlay.definir(tocando ? IconeView.PAUSE : IconeView.PLAY, TEXTO);
+        icPlay.definir(tocando ? IconeView.PAUSE : IconeView.PLAY, 0xFFFFFFFF);
         if (mi == null) {
             lblTitulo.setText("Nada tocando");
             lblArtista.setText("");
@@ -463,7 +478,15 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void guardarHistorico() {
+        if (historico.precisaGuardar()) {
+            prefs.historico(historico.serializar());
+            historico.guardado();
+        }
+    }
+
     private void salvarUltimo() {
+        guardarHistorico();
         if (player == null) return;
         MediaItem mi = player.getCurrentMediaItem();
         if (mi != null) prefs.ultimo(mi.mediaId, Math.max(0, player.getCurrentPosition()));
@@ -485,6 +508,16 @@ public class MainActivity extends Activity {
                     lblDur.setText("0:00");
                 }
                 long agora = System.currentTimeMillis();
+                if (player.isPlaying()) {
+                    historico.somarTempo(500);
+                    tocadoMs += 500;
+                    Faixa atual = faixaAtual();
+                    if (!contouEssa && atual != null && (tocadoMs >= 20_000 || (dur > 0 && dur < 40_000 && tocadoMs >= dur / 2))) {
+                        contouEssa = true;
+                        historico.registrar(atual.chave, agora);
+                        if (secao == SECAO_RECENTES || secao == SECAO_MAIS) aplicarFiltro();
+                    }
+                }
                 if (agora - ultimoSalvo > 5000) {
                     ultimoSalvo = agora;
                     salvarUltimo();
@@ -500,21 +533,25 @@ public class MainActivity extends Activity {
     }
 
     // ------------------------------------------------------------------ menus
-    private void menuDaFaixa(int pos) {
-        if (pos < 0 || pos >= visiveis.size()) return;
-        final Faixa f = visiveis.get(pos);
+    private void opcoesDaFaixa(final Faixa f) {
         final boolean curtida = curtidas.contains(f.chave);
-        String[] opcoes = {"Tocar a seguir", "Adicionar à fila", curtida ? "Descurtir" : "Curtir"};
-        new AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
+        String[] opcoes = {"Letra", "Tocar a seguir", "Adicionar à fila", curtida ? "Descurtir" : "Curtir", "Renomear", "Excluir do pendrive"};
+        new AlertDialog.Builder(this, estiloDialogo())
                 .setTitle(f.titulo)
                 .setItems(opcoes, (d, qual) -> {
-                    if (qual == 2) {
+                    if (qual == 0) {
+                        mostrarLetra(f);
+                    } else if (qual == 3) {
                         alternarCurtida(f);
+                    } else if (qual == 4) {
+                        renomear(f);
+                    } else if (qual == 5) {
+                        excluir(f);
                     } else if (player == null || player.getMediaItemCount() == 0) {
                         List<Faixa> so = new ArrayList<>();
                         so.add(f);
                         tocarFila(so, 0);
-                    } else if (qual == 0) {
+                    } else if (qual == 1) {
                         player.addMediaItem(player.getCurrentMediaItemIndex() + 1, item(f));
                         Toast.makeText(this, "Vai tocar a seguir", Toast.LENGTH_SHORT).show();
                     } else {
@@ -522,6 +559,154 @@ public class MainActivity extends Activity {
                         Toast.makeText(this, "Adicionada à fila", Toast.LENGTH_SHORT).show();
                     }
                 })
+                .show();
+    }
+
+    private void mostrarLetra(final Faixa f) {
+        String guardada = Letras.guardada(this, f);
+        if (guardada != null) {
+            dialogoDaLetra(f, guardada);
+            return;
+        }
+        Toast.makeText(this, "Buscando a letra…", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            final String letra = Letras.buscar(this, f);
+            ui.post(() -> {
+                if (isFinishing()) return;
+                if (letra == null) {
+                    Toast.makeText(this, "Não achei a letra dessa música.", Toast.LENGTH_LONG).show();
+                } else {
+                    dialogoDaLetra(f, letra);
+                }
+            });
+        }).start();
+    }
+
+    private void dialogoDaLetra(Faixa f, String letra) {
+        ScrollView rolagem = new ScrollView(this);
+        TextView t = new TextView(this);
+        t.setText(letra);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+        t.setTextColor(temaClaro ? 0xFF18181B : 0xFFFFFFFF);
+        t.setLineSpacing(0, 1.15f);
+        t.setPadding(dp(22), dp(8), dp(22), dp(16));
+        t.setTextIsSelectable(true);
+        rolagem.addView(t);
+        new AlertDialog.Builder(this, estiloDialogo())
+                .setTitle(f.artista.isEmpty() ? f.titulo : f.artista + " – " + f.titulo)
+                .setView(rolagem)
+                .setPositiveButton("Fechar", null)
+                .show();
+    }
+
+    private void mostrarEstatisticas() {
+        Set<String> artistas = new java.util.HashSet<>();
+        for (Faixa f : todas) if (!f.artista.isEmpty()) artistas.add(Faixa.normalizar(f.artista));
+        StringBuilder sb = new StringBuilder();
+        sb.append("Músicas: ").append(todas.size()).append('\n');
+        sb.append("Artistas: ").append(artistas.size()).append('\n');
+        sb.append("Curtidas: ").append(curtidas.size()).append('\n');
+        sb.append("Reproduções: ").append(historico.totalDeVezes()).append('\n');
+        sb.append("Tempo ouvido: ").append(Historico.duracao(historico.tempoTotalMs())).append('\n');
+        List<Faixa> top = historico.maisTocadas(todas, 5);
+        if (!top.isEmpty()) {
+            sb.append("\nMais tocadas\n");
+            for (int i = 0; i < top.size(); i++) {
+                int v = historico.vezes(top.get(i).chave);
+                sb.append(i + 1).append(". ").append(top.get(i).artista.isEmpty() ? "" : top.get(i).artista + " – ").append(top.get(i).titulo)
+                        .append("  (").append(v).append(v == 1 ? " vez)" : " vezes)").append('\n');
+            }
+        }
+        List<String[]> bandas = historico.bandasMaisOuvidas(todas, 5);
+        if (!bandas.isEmpty()) {
+            sb.append("\nArtistas mais ouvidos\n");
+            for (int i = 0; i < bandas.size(); i++) sb.append(i + 1).append(". ").append(bandas.get(i)[0]).append("  (").append(bandas.get(i)[1]).append(")\n");
+        }
+        ScrollView rolagem = new ScrollView(this);
+        TextView t = new TextView(this);
+        t.setText(sb.toString().trim());
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        t.setTextColor(temaClaro ? 0xFF18181B : 0xFFFFFFFF);
+        t.setLineSpacing(0, 1.2f);
+        t.setPadding(dp(22), dp(8), dp(22), dp(12));
+        rolagem.addView(t);
+        new AlertDialog.Builder(this, estiloDialogo()).setTitle("Estatísticas").setView(rolagem).setPositiveButton("Fechar", null).show();
+    }
+
+    private void renomear(final Faixa f) {
+        final EditText campo = new EditText(this);
+        campo.setSingleLine(true);
+        campo.setText(Faixa.semExtensao(f.nome));
+        campo.setSelection(campo.getText().length());
+        campo.setTextColor(temaClaro ? 0xFF18181B : 0xFFFFFFFF);
+        FrameLayout caixa = new FrameLayout(this);
+        caixa.setPadding(dp(22), dp(8), dp(22), 0);
+        caixa.addView(campo);
+        new AlertDialog.Builder(this, estiloDialogo())
+                .setTitle("Renomear")
+                .setView(caixa)
+                .setPositiveButton("Salvar", (d, q) -> aplicarNome(f, campo.getText().toString()))
+                .setNegativeButton("Cancelar", null)
+                .show();
+    }
+
+    private void aplicarNome(final Faixa f, String digitado) {
+        final String novoBase = digitado.replaceAll("[\\\\/:*?\"<>|]", "").trim();
+        if (novoBase.isEmpty() || novoBase.equals(Faixa.semExtensao(f.nome))) return;
+        final String extensao = f.nome.substring(Faixa.semExtensao(f.nome).length());
+        new Thread(() -> {
+            Uri novo = null;
+            try {
+                novo = android.provider.DocumentsContract.renameDocument(getContentResolver(), Uri.parse(f.uri), novoBase + extensao);
+            } catch (Exception e) {
+                novo = null;
+            }
+            final Uri resultado = novo;
+            ui.post(() -> {
+                if (resultado == null) {
+                    Toast.makeText(this, "Não consegui renomear. Se o pendrive estiver protegido, escolha a pasta de novo no menu.", Toast.LENGTH_LONG).show();
+                    return;
+                }
+                Faixa nova = new Faixa(resultado.toString(), novoBase + extensao);
+                List<Faixa> lista = new ArrayList<>(todas);
+                for (int i = 0; i < lista.size(); i++) if (lista.get(i).uri.equals(f.uri)) lista.set(i, nova);
+                prefs.renomearCurtida(f.chave, nova.chave);
+                curtidas = prefs.curtidas();
+                historico.renomear(f.chave, nova.chave);
+                guardarHistorico();
+                lista = Catalogo.ordenar(lista);
+                Biblioteca.guardar(this, lista);
+                definirTodas(lista);
+                Toast.makeText(this, "Renomeada", Toast.LENGTH_SHORT).show();
+            });
+        }).start();
+    }
+
+    private void excluir(final Faixa f) {
+        new AlertDialog.Builder(this, estiloDialogo())
+                .setTitle("Excluir do pendrive?")
+                .setMessage(f.nome + "\n\nO arquivo será apagado e não dá para desfazer.")
+                .setPositiveButton("Excluir", (d, q) -> new Thread(() -> {
+                    boolean apagou;
+                    try {
+                        apagou = android.provider.DocumentsContract.deleteDocument(getContentResolver(), Uri.parse(f.uri));
+                    } catch (Exception e) {
+                        apagou = false;
+                    }
+                    final boolean ok = apagou;
+                    ui.post(() -> {
+                        if (!ok) {
+                            Toast.makeText(this, "Não consegui excluir. Se o pendrive estiver protegido, escolha a pasta de novo no menu.", Toast.LENGTH_LONG).show();
+                            return;
+                        }
+                        List<Faixa> lista = new ArrayList<>(todas);
+                        for (int i = lista.size() - 1; i >= 0; i--) if (lista.get(i).uri.equals(f.uri)) lista.remove(i);
+                        Biblioteca.guardar(this, lista);
+                        definirTodas(lista);
+                        Toast.makeText(this, "Excluída", Toast.LENGTH_SHORT).show();
+                    });
+                }).start())
+                .setNegativeButton("Cancelar", null)
                 .show();
     }
 
@@ -541,7 +726,7 @@ public class MainActivity extends Activity {
         for (int i = 0; i < rotulos.length; i++) {
             rotulos[i] = nomes.get(i) + " (" + Sincronizacao.faixasDaPlaylist(sincronizacao.playlists.get(nomes.get(i)), porChave).size() + ")";
         }
-        new AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
+        new AlertDialog.Builder(this, estiloDialogo())
                 .setTitle("Playlists do PC")
                 .setItems(rotulos, (d, qual) -> {
                     List<Faixa> faixas = Sincronizacao.faixasDaPlaylist(sincronizacao.playlists.get(nomes.get(qual)), porChave);
@@ -587,7 +772,7 @@ public class MainActivity extends Activity {
         final int[] minutos = {15, 30, 45, 60, 90};
         String[] nomes = new String[minutos.length];
         for (int i = 0; i < minutos.length; i++) nomes[i] = minutos[i] + " minutos";
-        new AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
+        new AlertDialog.Builder(this, estiloDialogo())
                 .setTitle("Pausar a música em")
                 .setItems(nomes, (d, qual) -> {
                     desligar = () -> {
@@ -601,6 +786,145 @@ public class MainActivity extends Activity {
                     ui.postDelayed(desligar, minutos[qual] * 60_000L);
                     Toast.makeText(this, "A música pausa em " + minutos[qual] + " minutos", Toast.LENGTH_SHORT).show();
                 })
+                .show();
+    }
+
+    // ------------------------------------------------------------------ cores
+    private void aplicarPaleta() {
+        Cores.Paleta c = Cores.montar(prefs.corFundo(), prefs.corAcento());
+        FUNDO = c.fundo;
+        CARTAO = c.cartao;
+        LINHA = c.linha;
+        TEXTO = c.texto;
+        SUAVE = c.suave;
+        ICONE = c.icone;
+        ACENTO = c.acento;
+        temaClaro = c.claro;
+        getWindow().setStatusBarColor(FUNDO);
+        getWindow().setNavigationBarColor(CARTAO);
+        int flags = 0;
+        if (temaClaro) {
+            flags |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+            if (Build.VERSION.SDK_INT >= 26) flags |= View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+        }
+        getWindow().getDecorView().setSystemUiVisibility(flags);
+    }
+
+    private int estiloDialogo() {
+        return temaClaro ? android.R.style.Theme_Material_Light_Dialog_Alert : android.R.style.Theme_Material_Dialog_Alert;
+    }
+
+    private GradientDrawable bolinha(int cor, boolean marcada) {
+        GradientDrawable g = new GradientDrawable();
+        g.setShape(GradientDrawable.OVAL);
+        g.setColor(cor);
+        g.setStroke(dp(marcada ? 3 : 1), marcada ? TEXTO : LINHA);
+        return g;
+    }
+
+    private void escolherCores() {
+        final ScrollView rolagem = new ScrollView(this);
+        final LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setPadding(dp(20), dp(8), dp(20), dp(8));
+        rolagem.addView(col);
+        final AlertDialog dialogo = new AlertDialog.Builder(this, estiloDialogo()).setTitle("Aparência").setView(rolagem)
+                .setNegativeButton("Padrão", (d, q) -> {
+                    prefs.cores(0, 0);
+                    recreate();
+                })
+                .setPositiveButton("Fechar", null)
+                .create();
+        for (int bloco = 0; bloco < 2; bloco++) {
+            final boolean fundo = bloco == 0;
+            TextView rotulo = texto(14, SUAVE, true);
+            rotulo.setText(fundo ? "Fundo" : "Cor de destaque");
+            rotulo.setPadding(0, dp(bloco == 0 ? 4 : 18), 0, dp(8));
+            col.addView(rotulo);
+            final int[] opcoes = fundo ? Cores.FUNDOS : Cores.ACENTOS;
+            final int atual = fundo ? (prefs.corFundo() == 0 ? Cores.PADRAO_FUNDO : prefs.corFundo()) : (prefs.corAcento() == 0 ? Cores.PADRAO_ACENTO : prefs.corAcento());
+            LinearLayout linha = null;
+            for (int i = 0; i <= opcoes.length; i++) {
+                if (i % 6 == 0) {
+                    linha = new LinearLayout(this);
+                    col.addView(linha);
+                }
+                View b = new View(this);
+                LinearLayout.LayoutParams pb = new LinearLayout.LayoutParams(dp(40), dp(40));
+                pb.setMargins(dp(4), dp(4), dp(4), dp(4));
+                if (i == opcoes.length) {  // a ultima bolinha abre o seletor de uma cor so sua
+                    b.setBackground(bolinha(0xFF55555F, false));
+                    TextView mais = texto(20, 0xFFFFFFFF, true);
+                    mais.setText("+");
+                    mais.setGravity(Gravity.CENTER);
+                    mais.setBackground(bolinha(0xFF55555F, false));
+                    mais.setOnClickListener(v -> {
+                        dialogo.dismiss();
+                        corPersonalizada(fundo, atual);
+                    });
+                    linha.addView(mais, pb);
+                    continue;
+                }
+                final int cor = opcoes[i];
+                b.setBackground(bolinha(cor, (cor & 0xFFFFFF) == (atual & 0xFFFFFF)));
+                b.setOnClickListener(v -> {
+                    if (fundo) prefs.cores(cor, prefs.corAcento()); else prefs.cores(prefs.corFundo(), cor);
+                    dialogo.dismiss();
+                    recreate();
+                });
+                linha.addView(b, pb);
+            }
+        }
+        dialogo.show();
+    }
+
+    /** Escolha livre de uma cor: matiz, saturacao e brilho, com a amostra ao vivo. */
+    private void corPersonalizada(final boolean fundo, int inicial) {
+        final float[] hsv = new float[3];
+        Color.colorToHSV(inicial, hsv);
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setPadding(dp(20), dp(12), dp(20), dp(4));
+        final View amostra = new View(this);
+        col.addView(amostra, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56)));
+        final int[] atual = {inicial};
+        final Runnable pintar = () -> {
+            atual[0] = Color.HSVToColor(hsv);
+            amostra.setBackground(forma(atual[0], 14, LINHA));
+        };
+        pintar.run();
+        String[] nomes = {"Cor", "Intensidade", "Brilho"};
+        int[] maximos = {360, 100, 100};
+        int[] valores = {Math.round(hsv[0]), Math.round(hsv[1] * 100), Math.round(hsv[2] * 100)};
+        for (int i = 0; i < 3; i++) {
+            final int indice = i;
+            TextView r = texto(13, SUAVE, false);
+            r.setText(nomes[i]);
+            r.setPadding(0, dp(12), 0, 0);
+            col.addView(r);
+            SeekBar s = new SeekBar(this);
+            s.setMax(maximos[i]);
+            s.setProgress(valores[i]);
+            s.setProgressTintList(ColorStateList.valueOf(ACENTO));
+            s.setThumbTintList(ColorStateList.valueOf(ACENTO));
+            s.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+                @Override
+                public void onProgressChanged(SeekBar sb, int v, boolean doUsuario) {
+                    hsv[indice] = indice == 0 ? v : v / 100f;
+                    pintar.run();
+                }
+
+                @Override public void onStartTrackingTouch(SeekBar sb) {}
+                @Override public void onStopTrackingTouch(SeekBar sb) {}
+            });
+            col.addView(s);
+        }
+        new AlertDialog.Builder(this, estiloDialogo()).setTitle(fundo ? "Cor do fundo" : "Cor de destaque").setView(col)
+                .setPositiveButton("Usar", (d, q) -> {
+                    if (fundo) prefs.cores(atual[0], prefs.corAcento()); else prefs.cores(prefs.corFundo(), atual[0]);
+                    recreate();
+                })
+                .setNegativeButton("Cancelar", null)
                 .show();
     }
 
@@ -704,7 +1028,7 @@ public class MainActivity extends Activity {
         });
         lista.setOnItemLongClickListener((p, v, pos, id) -> {
             if (modoArtistas) return false;
-            menuDaFaixa(pos);
+            if (pos >= 0 && pos < visiveis.size()) opcoesDaFaixa(visiveis.get(pos));
             return true;
         });
         meio.addView(lista, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
@@ -738,6 +1062,10 @@ public class MainActivity extends Activity {
         nomes.addView(lblTitulo);
         nomes.addView(lblArtista);
         atual.addView(nomes, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        atual.setOnClickListener(v -> {
+            Faixa f = faixaAtual();
+            if (f != null) opcoesDaFaixa(f);
+        });
         FrameLayout celulaCurtir = new FrameLayout(this);
         icCurtir = icone(IconeView.CORACAO, 28, this::curtirAtual, celulaCurtir);
         icCurtir.setVisibility(View.INVISIBLE);
@@ -869,6 +1197,8 @@ public class MainActivity extends Activity {
             adicionarItem(itens, itensSecao[i]);
         }
         adicionarLinha(itens);
+        adicionarItem(itens, itemDoMenu("Estatísticas", this::mostrarEstatisticas));
+        adicionarItem(itens, itemDoMenu("Aparência", this::escolherCores));
         adicionarItem(itens, itemDoMenu("Tocar em aleatório", this::tocarAleatorio));
         itemPlaylists = itemDoMenu("Playlists do PC", this::menuDasPlaylists);
         adicionarItem(itens, itemPlaylists);
@@ -979,7 +1309,7 @@ public class MainActivity extends Activity {
     }
 
     private void perguntarAtualizar() {
-        new AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
+        new AlertDialog.Builder(this, estiloDialogo())
                 .setTitle("Nova versão disponível")
                 .setMessage("Atualizar agora? Suas músicas e curtidas continuam como estão.")
                 .setPositiveButton("Atualizar", (d, q) -> baixarEInstalar())
@@ -989,14 +1319,14 @@ public class MainActivity extends Activity {
 
     private void baixarEInstalar() {
         if (!Atualizador.podeInstalar(this)) {
-            new AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
+            new AlertDialog.Builder(this, estiloDialogo())
                     .setMessage("Para atualizar, permita que o Raccoon Music instale atualizações. Depois de permitir, volte e toque em Atualizar de novo.")
                     .setPositiveButton("Permitir", (d, q) -> Atualizador.pedirPermissao(this))
                     .setNegativeButton("Agora não", null)
                     .show();
             return;
         }
-        final AlertDialog espera = new AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
+        final AlertDialog espera = new AlertDialog.Builder(this, estiloDialogo())
                 .setMessage("Baixando a atualização… 0%")
                 .setCancelable(false)
                 .show();
@@ -1017,7 +1347,7 @@ public class MainActivity extends Activity {
         icAleatorio.definir(IconeView.ALEATORIO, prefs.embaralhar() ? ACENTO : ICONE);
         int r = prefs.repetir();
         icRepetir.definir(r == Player.REPEAT_MODE_ONE ? IconeView.REPETIR_UM : IconeView.REPETIR, r == Player.REPEAT_MODE_OFF ? ICONE : ACENTO);
-        icPlay.definir(IconeView.PLAY, TEXTO);
+        icPlay.definir(IconeView.PLAY, 0xFFFFFFFF);
     }
 
     // ------------------------------------------------------------------ a lista
@@ -1073,8 +1403,10 @@ public class MainActivity extends Activity {
             }
             Faixa f = visiveis.get(i);
             l.titulo.setText(f.titulo);
-            l.artista.setText(f.artista);
-            l.artista.setVisibility(f.artista.isEmpty() ? View.GONE : View.VISIBLE);
+            int vezes = historico.vezes(f.chave);
+            String detalhe = secao == SECAO_MAIS && vezes > 0 ? (f.artista.isEmpty() ? "" : f.artista + "  ·  ") + vezes + (vezes == 1 ? " vez" : " vezes") : f.artista;
+            l.artista.setText(detalhe);
+            l.artista.setVisibility(detalhe.isEmpty() ? View.GONE : View.VISIBLE);
             MediaItem mi = player == null ? null : player.getCurrentMediaItem();
             boolean tocando = mi != null && f.uri.equals(mi.mediaId);
             l.titulo.setTextColor(tocando ? ACENTO : TEXTO);
