@@ -14,9 +14,29 @@ android {
         targetSdk 34
         versionCode numeroDaVersao
         versionName '1.0.0'
+        buildConfigField 'String', 'REPO', '"' + (System.getenv('GITHUB_REPOSITORY') ?: '') + '"'
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    signingConfigs {
+        chave {
+            if (System.getenv('CHAVE_ARQUIVO')) {
+                storeFile file(System.getenv('CHAVE_ARQUIVO'))
+                storeType 'pkcs12'
+                storePassword 'raccoon-music'
+                keyAlias 'raccoon'
+                keyPassword 'raccoon-music'
+            }
+        }
     }
 
     buildTypes {
+        debug {
+            if (System.getenv('CHAVE_ARQUIVO')) signingConfig signingConfigs.chave
+        }
         release {
             minifyEnabled false
         }
@@ -31,5 +51,6 @@ android {
 dependencies {
     implementation 'androidx.media3:media3-exoplayer:1.3.1'
     implementation 'androidx.media3:media3-session:1.3.1'
+    implementation 'androidx.core:core:1.13.1'
     implementation 'com.google.guava:guava:32.1.3-android'
 }

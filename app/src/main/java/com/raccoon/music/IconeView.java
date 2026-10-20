@@ -9,7 +9,7 @@ import android.view.View;
 
 /** Os icones do player, desenhados no codigo (assim nao dependem de nenhuma imagem nem de fonte de emoji). */
 public final class IconeView extends View {
-    public static final int PLAY = 0, PAUSE = 1, PROXIMA = 2, ANTERIOR = 3, ALEATORIO = 4, REPETIR = 5, REPETIR_UM = 6, CORACAO = 7, CORACAO_CHEIO = 8;
+    public static final int PLAY = 0, PAUSE = 1, PROXIMA = 2, ANTERIOR = 3, ALEATORIO = 4, REPETIR = 5, REPETIR_UM = 6, CORACAO = 7, CORACAO_CHEIO = 8, MENU = 9;
 
     private int tipo;
     private int cor = 0xFFC8C8D0;
@@ -123,6 +123,11 @@ public final class IconeView extends View {
                     c.drawText("1", 12, 15.2f, tinta);
                     tinta.setFakeBoldText(false);
                 }
+                break;
+            case MENU:
+                barra(c, 3.5f, 5.5f, 20.5f, 7.5f);
+                barra(c, 3.5f, 11f, 20.5f, 13f);
+                barra(c, 3.5f, 16.5f, 20.5f, 18.5f);
                 break;
             default:  // CORACAO e CORACAO_CHEIO
                 caminho.reset();

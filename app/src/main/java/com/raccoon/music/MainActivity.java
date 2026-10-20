@@ -22,6 +22,7 @@ import android.text.TextUtils;
 import android.text.TextWatcher;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
@@ -31,6 +32,7 @@ import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.ListView;
 import android.widget.SeekBar;
 import android.widget.TextView;
@@ -68,7 +70,16 @@ public class MainActivity extends Activity {
     private final Map<String, Faixa> porUri = new HashMap<>();
     private final Map<String, Integer> posicao = new HashMap<>();
     private Set<String> curtidas;
+    private static final int SECAO_MUSICAS = 0, SECAO_ARTISTAS = 1, SECAO_CURTIDAS = 2;
+    private static final String[] NOMES_SECAO = {"Músicas", "Artistas", "Curtidas"};
+    private int secao = SECAO_MUSICAS;
     private boolean soCurtidas = false;
+    private View cortina, gaveta;
+    private boolean gavetaAberta = false;
+    private float toqueX = -1;
+    private final TextView[] itensSecao = new TextView[3];
+    private TextView itemPlaylists, itemTemporizador, itemVersao;
+    private boolean avisouAtualizacao = false;
     private boolean varrendo = false;
     private boolean modoArtistas = false;
     private List<String[]> artistasVisiveis = new ArrayList<>();
@@ -84,7 +95,7 @@ public class MainActivity extends Activity {
     private byte[] ultimaArte;
     private long ultimoSalvo = 0;
 
-    private TextView lblContagem, lblVazio, lblTitulo, lblArtista, lblPos, lblDur, btnCurtidas, btnPasta, btnAleatorio, btnArtistas;
+    private TextView lblContagem, lblVazio, lblTitulo, lblArtista, lblPos, lblDur, lblSecao;
     private EditText edtBusca;
     private ListView lista;
     private Adaptador adaptador;
@@ -111,6 +122,11 @@ public class MainActivity extends Activity {
         }
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, PEDIDO_NOTIFICACAO);
+        }
+
+        if (estado == null && !avisouAtualizacao) {
+            avisouAtualizacao = true;
+            procurarAtualizacao(false);
         }
 
         SessionToken token = new SessionToken(this, new ComponentName(this, PlaybackService.class));
@@ -223,7 +239,12 @@ public class MainActivity extends Activity {
         if (adaptador != null) adaptador.notifyDataSetChanged();
         int n = todas.size();
         String total = n == 1 ? "1 música" : n + " músicas";
-        lblContagem.setText(visiveis.size() == n ? total : visiveis.size() + " de " + total);
+        if (modoArtistas) {
+            int a = artistasVisiveis.size();
+            lblContagem.setText(a == 1 ? "1 artista" : a + " artistas");
+        } else {
+            lblContagem.setText(visiveis.size() == n ? total : visiveis.size() + " de " + total);
+        }
         atualizarVazio();
     }
 
@@ -504,28 +525,6 @@ public class MainActivity extends Activity {
                 .show();
     }
 
-    private void menuDaPasta() {
-        if (prefs.arvore() == null) {
-            escolherPasta();
-            return;
-        }
-        final List<String> nomes = new ArrayList<>();
-        final List<Runnable> acoes = new ArrayList<>();
-        if (!sincronizacao.playlists.isEmpty()) {
-            nomes.add("Playlists do PC");
-            acoes.add(this::menuDasPlaylists);
-        }
-        nomes.add("Atualizar a biblioteca");
-        acoes.add(this::atualizarBiblioteca);
-        nomes.add("Escolher outra pasta");
-        acoes.add(this::escolherPasta);
-        nomes.add(desligar == null ? "Temporizador" : "Cancelar o temporizador");
-        acoes.add(this::menuDoTemporizador);
-        new AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
-                .setItems(nomes.toArray(new String[0]), (d, qual) -> acoes.get(qual).run())
-                .show();
-    }
-
     /** Curtidas e playlists que vieram do PC: as curtidas se juntam as daqui; as playlists ficam no menu "Pasta". */
     private void importarDoPc(String texto) {
         sincronizacao = Sincronizacao.ler(texto);
@@ -557,22 +556,22 @@ public class MainActivity extends Activity {
                 .show();
     }
 
-    private void alternarArtistas() {
-        modoArtistas = !modoArtistas;
-        btnArtistas.setText(modoArtistas ? "Músicas" : "Artistas");
-        btnArtistas.setBackground(modoArtistas ? forma(ACENTO, 24, 0) : forma(CARTAO, 24, LINHA));
-        adaptador.notifyDataSetChanged();
-        lista.setSelection(0);
-        atualizarVazio();
+    /** Troca a secao do menu lateral: musicas, artistas ou so as curtidas. */
+    private void irPara(int nova) {
+        secao = nova;
+        modoArtistas = nova == SECAO_ARTISTAS;
+        soCurtidas = nova == SECAO_CURTIDAS;
+        lblSecao.setText(NOMES_SECAO[nova]);
+        marcarSecao();
+        aplicarFiltro();
+        if (lista != null) lista.setSelection(0);
     }
 
-    /** Tocou numa banda: volta para as musicas, so dela. */
+    /** Tocou numa banda: vai para as musicas, so dela. */
     private void escolherArtista(int pos) {
         if (pos < 0 || pos >= artistasVisiveis.size()) return;
         String nome = artistasVisiveis.get(pos)[0];
-        modoArtistas = false;
-        btnArtistas.setText("Artistas");
-        btnArtistas.setBackground(forma(CARTAO, 24, LINHA));
+        irPara(SECAO_MUSICAS);
         edtBusca.setText(nome);  // o texto da pesquisa refaz a lista (aplicarFiltro)
         edtBusca.setSelection(edtBusca.getText().length());
         lista.setSelection(0);
@@ -650,34 +649,22 @@ public class MainActivity extends Activity {
         raiz.setOrientation(LinearLayout.VERTICAL);
         raiz.setBackgroundColor(FUNDO);
 
-        // cabecalho
+        // cabecalho: botao do menu, nome da secao e contagem
         LinearLayout cab = new LinearLayout(this);
-        cab.setOrientation(LinearLayout.VERTICAL);
-        cab.setPadding(dp(16), dp(14), dp(16), dp(6));
-        TextView titulo = texto(24, TEXTO, true);
-        titulo.setText("Raccoon Music");
+        cab.setGravity(Gravity.CENTER_VERTICAL);
+        cab.setPadding(dp(4), dp(8), dp(16), dp(4));
+        FrameLayout celulaMenu = new FrameLayout(this);
+        icone(IconeView.MENU, 26, this::abrirGaveta, celulaMenu).definir(IconeView.MENU, TEXTO);
+        cab.addView(celulaMenu, new LinearLayout.LayoutParams(dp(52), dp(52)));
+        LinearLayout titulos = new LinearLayout(this);
+        titulos.setOrientation(LinearLayout.VERTICAL);
+        lblSecao = texto(22, TEXTO, true);
+        lblSecao.setText(NOMES_SECAO[secao]);
         lblContagem = texto(13, SUAVE, false);
-        cab.addView(titulo);
-        cab.addView(lblContagem);
+        titulos.addView(lblSecao);
+        titulos.addView(lblContagem);
+        cab.addView(titulos, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         raiz.addView(cab);
-
-        // botoes
-        LinearLayout botoes = new LinearLayout(this);
-        botoes.setPadding(dp(12), dp(6), dp(12), dp(6));
-        btnAleatorio = botao("Aleatório", true, this::tocarAleatorio);
-        btnCurtidas = botao("Curtidas", false, () -> {
-            soCurtidas = !soCurtidas;
-            btnCurtidas.setBackground(soCurtidas ? forma(ACENTO, 24, 0) : forma(CARTAO, 24, LINHA));
-            aplicarFiltro();
-        });
-        btnArtistas = botao("Artistas", false, this::alternarArtistas);
-        btnPasta = botao("Pasta", false, this::menuDaPasta);
-        for (TextView b : new TextView[]{btnAleatorio, btnArtistas, btnCurtidas, btnPasta}) {
-            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, dp(48), 1f);
-            p.setMargins(dp(4), 0, dp(4), 0);
-            botoes.addView(b, p);
-        }
-        raiz.addView(botoes);
 
         // pesquisa
         edtBusca = new EditText(this);
@@ -701,7 +688,7 @@ public class MainActivity extends Activity {
             return true;
         });
         LinearLayout.LayoutParams pb = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
-        pb.setMargins(dp(16), dp(4), dp(16), dp(8));
+        pb.setMargins(dp(16), dp(6), dp(16), dp(8));
         raiz.addView(edtBusca, pb);
 
         // lista
@@ -808,7 +795,222 @@ public class MainActivity extends Activity {
         raiz.addView(painel, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         aplicarIconesIniciais();
-        return raiz;
+
+        FrameLayout tudo = new FrameLayout(this);
+        tudo.setBackgroundColor(FUNDO);
+        tudo.addView(raiz, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        cortina = new View(this);
+        cortina.setBackgroundColor(0xB0000000);
+        cortina.setAlpha(0f);
+        cortina.setVisibility(View.GONE);
+        cortina.setOnClickListener(v -> fecharGaveta());
+        tudo.addView(cortina, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        int largura = Math.min(dp(310), Math.round(getResources().getDisplayMetrics().widthPixels * 0.82f));
+        gaveta = montarGaveta();
+        gaveta.setTranslationX(-largura);
+        gaveta.setVisibility(View.GONE);
+        tudo.addView(gaveta, new FrameLayout.LayoutParams(largura, ViewGroup.LayoutParams.MATCH_PARENT));
+        marcarSecao();
+        return tudo;
+    }
+
+    // ------------------------------------------------------------------ menu lateral
+    private TextView itemDoMenu(String rotulo, Runnable acao) {
+        TextView t = texto(16, TEXTO, false);
+        t.setText(rotulo);
+        t.setGravity(Gravity.CENTER_VERTICAL);
+        t.setPadding(dp(16), 0, dp(16), 0);
+        t.setOnClickListener(v -> {
+            fecharGaveta();
+            acao.run();
+        });
+        return t;
+    }
+
+    private void adicionarItem(LinearLayout pai, TextView item) {
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50));
+        p.setMargins(dp(10), dp(2), dp(10), dp(2));
+        pai.addView(item, p);
+    }
+
+    private void adicionarLinha(LinearLayout pai) {
+        View linha = new View(this);
+        linha.setBackgroundColor(LINHA);
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1));
+        p.setMargins(dp(20), dp(8), dp(20), dp(8));
+        pai.addView(linha, p);
+    }
+
+    private View montarGaveta() {
+        LinearLayout g = new LinearLayout(this);
+        g.setOrientation(LinearLayout.VERTICAL);
+        g.setBackgroundColor(CARTAO);
+        g.setClickable(true);  // nao deixa o toque passar para a lista de tras
+
+        LinearLayout marca = new LinearLayout(this);
+        marca.setGravity(Gravity.CENTER_VERTICAL);
+        marca.setPadding(dp(20), dp(28), dp(20), dp(20));
+        ImageView logo = new ImageView(this);
+        logo.setImageResource(R.drawable.logo);
+        logo.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        marca.addView(logo, new LinearLayout.LayoutParams(dp(52), dp(52)));
+        TextView nome = texto(20, TEXTO, true);
+        nome.setText("Raccoon Music");
+        nome.setPadding(dp(14), 0, 0, 0);
+        marca.addView(nome, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        g.addView(marca);
+
+        ScrollView rolagem = new ScrollView(this);
+        LinearLayout itens = new LinearLayout(this);
+        itens.setOrientation(LinearLayout.VERTICAL);
+        for (int i = 0; i < NOMES_SECAO.length; i++) {
+            final int destino = i;
+            itensSecao[i] = itemDoMenu(NOMES_SECAO[i], () -> irPara(destino));
+            adicionarItem(itens, itensSecao[i]);
+        }
+        adicionarLinha(itens);
+        adicionarItem(itens, itemDoMenu("Tocar em aleatório", this::tocarAleatorio));
+        itemPlaylists = itemDoMenu("Playlists do PC", this::menuDasPlaylists);
+        adicionarItem(itens, itemPlaylists);
+        itemTemporizador = itemDoMenu("Temporizador", this::menuDoTemporizador);
+        adicionarItem(itens, itemTemporizador);
+        adicionarLinha(itens);
+        adicionarItem(itens, itemDoMenu("Atualizar a biblioteca", this::atualizarBiblioteca));
+        adicionarItem(itens, itemDoMenu("Escolher outra pasta", this::escolherPasta));
+        if (Atualizador.disponivel()) {
+            itemVersao = itemDoMenu("Procurar atualização", () -> procurarAtualizacao(true));
+            adicionarItem(itens, itemVersao);
+        }
+        rolagem.addView(itens);
+        g.addView(rolagem, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        TextView versao = texto(12, SUAVE, false);
+        versao.setText("Versão " + Atualizador.instalada(this));
+        versao.setPadding(dp(24), dp(8), dp(24), dp(16));
+        g.addView(versao);
+        return g;
+    }
+
+    private void marcarSecao() {
+        for (int i = 0; i < itensSecao.length; i++) {
+            if (itensSecao[i] == null) continue;
+            boolean atual = i == secao;
+            itensSecao[i].setTextColor(atual ? ACENTO : TEXTO);
+            itensSecao[i].setTypeface(null, atual ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+            itensSecao[i].setBackground(atual ? forma(LINHA, 12, 0) : null);
+        }
+    }
+
+    private void abrirGaveta() {
+        if (gavetaAberta) return;
+        gavetaAberta = true;
+        itemPlaylists.setVisibility(sincronizacao.playlists.isEmpty() ? View.GONE : View.VISIBLE);
+        itemTemporizador.setText(desligar == null ? "Temporizador" : "Cancelar o temporizador");
+        InputMethodManager imm = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+        if (imm != null && edtBusca != null) imm.hideSoftInputFromWindow(edtBusca.getWindowToken(), 0);
+        cortina.setVisibility(View.VISIBLE);
+        gaveta.setVisibility(View.VISIBLE);
+        cortina.animate().alpha(1f).setDuration(180).start();
+        gaveta.animate().translationX(0).setDuration(200).start();
+    }
+
+    private void fecharGaveta() {
+        if (!gavetaAberta) return;
+        gavetaAberta = false;
+        cortina.animate().alpha(0f).setDuration(160).withEndAction(() -> {
+            if (!gavetaAberta) cortina.setVisibility(View.GONE);
+        }).start();
+        gaveta.animate().translationX(-gaveta.getWidth()).setDuration(180).withEndAction(() -> {
+            if (!gavetaAberta) gaveta.setVisibility(View.GONE);
+        }).start();
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (gavetaAberta) fecharGaveta(); else super.onBackPressed();
+    }
+
+    /** Arrastar da borda esquerda abre o menu; arrastar o menu para a esquerda fecha. */
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent e) {
+        switch (e.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                toqueX = gavetaAberta || e.getX() < dp(24) ? e.getX() : -1;
+                break;
+            case MotionEvent.ACTION_MOVE:
+                if (toqueX >= 0) {
+                    float dx = e.getX() - toqueX;
+                    if (!gavetaAberta && dx > dp(56)) {
+                        toqueX = -1;
+                        abrirGaveta();
+                        return true;
+                    }
+                    if (gavetaAberta && dx < -dp(56)) {
+                        toqueX = -1;
+                        fecharGaveta();
+                        return true;
+                    }
+                }
+                break;
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_CANCEL:
+                toqueX = -1;
+                break;
+            default:
+                break;
+        }
+        return super.dispatchTouchEvent(e);
+    }
+
+    // ------------------------------------------------------------------ atualizacao do proprio app
+    private void procurarAtualizacao(final boolean manual) {
+        if (!Atualizador.disponivel()) return;
+        new Thread(() -> {
+            final int nova = Atualizador.maisNova();
+            ui.post(() -> {
+                if (isFinishing()) return;
+                if (nova > Atualizador.instalada(this)) {
+                    perguntarAtualizar();
+                } else if (manual) {
+                    Toast.makeText(this, nova < 0 ? "Não consegui verificar agora. Confira a internet." : "Você já está com a versão mais recente.", Toast.LENGTH_LONG).show();
+                }
+            });
+        }).start();
+    }
+
+    private void perguntarAtualizar() {
+        new AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
+                .setTitle("Nova versão disponível")
+                .setMessage("Atualizar agora? Suas músicas e curtidas continuam como estão.")
+                .setPositiveButton("Atualizar", (d, q) -> baixarEInstalar())
+                .setNegativeButton("Depois", null)
+                .show();
+    }
+
+    private void baixarEInstalar() {
+        if (!Atualizador.podeInstalar(this)) {
+            new AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
+                    .setMessage("Para atualizar, permita que o Raccoon Music instale atualizações. Depois de permitir, volte e toque em Atualizar de novo.")
+                    .setPositiveButton("Permitir", (d, q) -> Atualizador.pedirPermissao(this))
+                    .setNegativeButton("Agora não", null)
+                    .show();
+            return;
+        }
+        final AlertDialog espera = new AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
+                .setMessage("Baixando a atualização… 0%")
+                .setCancelable(false)
+                .show();
+        new Thread(() -> {
+            final java.io.File apk = Atualizador.baixar(this, p -> ui.post(() -> espera.setMessage("Baixando a atualização… " + p + "%")));
+            ui.post(() -> {
+                espera.dismiss();
+                if (apk == null) {
+                    Toast.makeText(this, "Não consegui baixar a atualização. Tente de novo.", Toast.LENGTH_LONG).show();
+                } else {
+                    Atualizador.instalar(this, apk);
+                }
+            });
+        }).start();
     }
 
     private void aplicarIconesIniciais() {

@@ -23,6 +23,15 @@ jobs:
         with:
           gradle-version: '8.9'
 
+      - name: Chave
+        env:
+          CHAVE_B64: ${{ secrets.CHAVE_B64 }}
+        run: |
+          if [ -n "$CHAVE_B64" ]; then
+            echo "$CHAVE_B64" | base64 -d > "$RUNNER_TEMP/chave.p12"
+            echo "CHAVE_ARQUIVO=$RUNNER_TEMP/chave.p12" >> "$GITHUB_ENV"
+          fi
+
       - name: Icones
         run: python3 gerar_icones.py
 
@@ -30,7 +39,9 @@ jobs:
         run: gradle assembleDebug --stacktrace --no-daemon
 
       - name: Separar o APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk Raccoon-Music-Mobile.apk
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk Raccoon-Music-Mobile.apk
+          echo "${{ github.run_number }}" > versao.txt
 
       - name: Publicar
         uses: softprops/action-gh-release@v2
@@ -38,4 +49,6 @@ jobs:
           tag_name: mobile-latest
           name: Raccoon Music Mobile
           body: APK mais recente do Raccoon Music para Android.
-          files: Raccoon-Music-Mobile.apk
+          files: |
+            Raccoon-Music-Mobile.apk
+            versao.txt

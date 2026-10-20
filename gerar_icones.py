@@ -43,10 +43,14 @@ def icone_png(lado: int, cor: str = COR_FUNDO) -> bytes:
 
 
 def gerar(raiz: Path) -> None:
-    for nome, lado in PASTAS.items():
-        pasta = raiz / "app" / "src" / "main" / "res" / f"mipmap-{nome}"
-        pasta.mkdir(parents=True, exist_ok=True)
-        (pasta / "ic_launcher.png").write_bytes(icone_png(lado))
+    """Cria so o que falta: se o publicar_mobile.py ja colocou o icone do app do PC, ele e mantido."""
+    res = raiz / "app" / "src" / "main" / "res"
+    destinos = {res / f"mipmap-{nome}" / "ic_launcher.png": lado for nome, lado in PASTAS.items()}
+    destinos[res / "drawable-nodpi" / "logo.png"] = 256
+    for arquivo, lado in destinos.items():
+        if not arquivo.exists():
+            arquivo.parent.mkdir(parents=True, exist_ok=True)
+            arquivo.write_bytes(icone_png(lado))
 
 
 if __name__ == "__main__":
