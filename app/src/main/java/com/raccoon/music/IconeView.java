@@ -9,7 +9,7 @@ import android.view.View;
 
 /** Os icones do player, desenhados no codigo (assim nao dependem de nenhuma imagem nem de fonte de emoji). */
 public final class IconeView extends View {
-    public static final int PLAY = 0, PAUSE = 1, PROXIMA = 2, ANTERIOR = 3, ALEATORIO = 4, REPETIR = 5, REPETIR_UM = 6, CORACAO = 7, CORACAO_CHEIO = 8, MENU = 9;
+    public static final int PLAY = 0, PAUSE = 1, PROXIMA = 2, ANTERIOR = 3, ALEATORIO = 4, REPETIR = 5, REPETIR_UM = 6, CORACAO = 7, CORACAO_CHEIO = 8, MENU = 9, SETA = 10, BAIXO = 11, FECHAR = 12, MAIS = 13, PONTOS = 14, FILA = 15, LETRA = 16, PLAYLIST_MAIS = 17, NOTA = 18, RELOGIO = 19;
 
     private int tipo;
     private int cor = 0xFFC8C8D0;
@@ -47,6 +47,11 @@ public final class IconeView extends View {
         caminho.close();
         cheio();
         c.drawPath(caminho, tinta);
+    }
+
+    private void linha(Canvas c, float x1, float y1, float x2, float y2) {
+        traco();
+        c.drawLine(x1, y1, x2, y2, tinta);
     }
 
     private void barra(Canvas c, float e, float t, float d, float b) {
@@ -128,6 +133,70 @@ public final class IconeView extends View {
                 barra(c, 3.5f, 5.5f, 20.5f, 7.5f);
                 barra(c, 3.5f, 11f, 20.5f, 13f);
                 barra(c, 3.5f, 16.5f, 20.5f, 18.5f);
+                break;
+            case SETA:
+                traco();
+                caminho.reset();
+                caminho.moveTo(15, 5);
+                caminho.lineTo(8, 12);
+                caminho.lineTo(15, 19);
+                c.drawPath(caminho, tinta);
+                break;
+            case BAIXO:
+                traco();
+                caminho.reset();
+                caminho.moveTo(5, 9);
+                caminho.lineTo(12, 16);
+                caminho.lineTo(19, 9);
+                c.drawPath(caminho, tinta);
+                break;
+            case FECHAR:
+                linha(c, 6, 6, 18, 18);
+                linha(c, 18, 6, 6, 18);
+                break;
+            case MAIS:
+                linha(c, 12, 5, 12, 19);
+                linha(c, 5, 12, 19, 12);
+                break;
+            case PONTOS:
+                cheio();
+                c.drawCircle(12, 5.5f, 1.9f, tinta);
+                c.drawCircle(12, 12, 1.9f, tinta);
+                c.drawCircle(12, 18.5f, 1.9f, tinta);
+                break;
+            case FILA:
+                linha(c, 4, 6, 15, 6);
+                linha(c, 4, 11, 15, 11);
+                linha(c, 4, 16, 11, 16);
+                triangulo(c, 16, 13, 16, 21, 22, 17);
+                break;
+            case LETRA:
+                linha(c, 5, 7, 19, 7);
+                linha(c, 8, 12, 16, 12);
+                linha(c, 5, 17, 19, 17);
+                break;
+            case PLAYLIST_MAIS:
+                linha(c, 4, 6, 15, 6);
+                linha(c, 4, 11, 15, 11);
+                linha(c, 4, 16, 10, 16);
+                linha(c, 18, 13, 18, 21);
+                linha(c, 14, 17, 22, 17);
+                break;
+            case NOTA:
+                cheio();
+                retangulo.set(5.5f, 14.5f, 12.5f, 19.5f);
+                c.drawOval(retangulo, tinta);
+                barra(c, 11, 4.5f, 13.2f, 17);
+                barra(c, 13, 4.5f, 18.5f, 7.5f);
+                break;
+            case RELOGIO:
+                traco();
+                c.drawCircle(12, 12, 8, tinta);
+                caminho.reset();
+                caminho.moveTo(12, 7);
+                caminho.lineTo(12, 12);
+                caminho.lineTo(15.5f, 14);
+                c.drawPath(caminho, tinta);
                 break;
             default:  // CORACAO e CORACAO_CHEIO
                 caminho.reset();

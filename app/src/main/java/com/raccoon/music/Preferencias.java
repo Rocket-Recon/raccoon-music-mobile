@@ -49,6 +49,9 @@ public final class Preferencias {
     public int corAcento() { return sp.getInt("cor_acento", 0); }
     public void cores(int fundo, int acento) { sp.edit().putInt("cor_fundo", fundo).putInt("cor_acento", acento).apply(); }
 
+    public String playlists() { return sp.getString("playlists", ""); }
+    public void playlists(String texto) { sp.edit().putString("playlists", texto).apply(); }
+
     public String historico() { return sp.getString("historico", ""); }
     public void historico(String texto) { sp.edit().putString("historico", texto).apply(); }
 
