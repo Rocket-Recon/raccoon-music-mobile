@@ -771,7 +771,7 @@ public class MainActivity extends Activity {
         acoes.add(() -> renomear(f));
         nomes.add("Excluir do pendrive");
         acoes.add(() -> excluir(f));
-        new AlertDialog.Builder(this, estiloDialogo())
+        new Construtor()
                 .setTitle(f.titulo)
                 .setItems(nomes.toArray(new String[0]), (d, qual) -> acoes.get(qual).run())
                 .show();
@@ -816,7 +816,7 @@ public class MainActivity extends Activity {
     private void novaPlaylist(final Faixa adicionar) {
         final EditText campo = campoDeTexto("");
         campo.setHint("Nome da playlist");
-        new AlertDialog.Builder(this, estiloDialogo())
+        new Construtor()
                 .setTitle("Nova playlist")
                 .setView(caixaDoCampo(campo))
                 .setPositiveButton("Criar", (d, q) -> {
@@ -839,7 +839,7 @@ public class MainActivity extends Activity {
         String[] itens = new String[nomes.size() + 1];
         itens[0] = "+  Nova playlist";
         for (int i = 0; i < nomes.size(); i++) itens[i + 1] = nomes.get(i);
-        new AlertDialog.Builder(this, estiloDialogo())
+        new Construtor()
                 .setTitle("Adicionar à playlist")
                 .setItems(itens, (d, qual) -> {
                     if (qual == 0) {
@@ -868,7 +868,7 @@ public class MainActivity extends Activity {
             nomes.add("Excluir");
             acoes.add(() -> excluirPlaylist(g.titulo));
         }
-        new AlertDialog.Builder(this, estiloDialogo())
+        new Construtor()
                 .setTitle(g.titulo)
                 .setItems(nomes.toArray(new String[0]), (d, qual) -> acoes.get(qual).run())
                 .show();
@@ -890,7 +890,7 @@ public class MainActivity extends Activity {
 
     private void renomearPlaylist(final String antigo) {
         final EditText campo = campoDeTexto(antigo);
-        new AlertDialog.Builder(this, estiloDialogo())
+        new Construtor()
                 .setTitle("Renomear playlist")
                 .setView(caixaDoCampo(campo))
                 .setPositiveButton("Salvar", (d, q) -> {
@@ -906,7 +906,7 @@ public class MainActivity extends Activity {
     }
 
     private void excluirPlaylist(final String nome) {
-        new AlertDialog.Builder(this, estiloDialogo())
+        new Construtor()
                 .setTitle("Excluir a playlist " + nome + "?")
                 .setMessage("As músicas continuam no pendrive.")
                 .setPositiveButton("Excluir", (d, q) -> {
@@ -977,13 +977,13 @@ public class MainActivity extends Activity {
             }
         });
         lv.setSelection(Math.max(0, player.getCurrentMediaItemIndex() - 2));
-        new AlertDialog.Builder(this, estiloDialogo()).setTitle("Fila de reprodução").setView(lv).setPositiveButton("Fechar", null).show();
+        new Construtor().setTitle("Fila de reprodução").setView(lv).setPositiveButton("Fechar", null).show();
     }
 
     private void menuVelocidade() {
         final float[] valores = {0.75f, 1f, 1.25f, 1.5f, 2f};
         final String[] nomes = {"0,75x", "1x (normal)", "1,25x", "1,5x", "2x"};
-        new AlertDialog.Builder(this, estiloDialogo())
+        new Construtor()
                 .setTitle("Velocidade")
                 .setItems(nomes, (d, qual) -> {
                     velocidade = valores[qual];
@@ -1050,7 +1050,7 @@ public class MainActivity extends Activity {
         t.setPadding(dp(22), dp(8), dp(22), dp(16));
         t.setTextIsSelectable(true);
         rolagem.addView(t);
-        new AlertDialog.Builder(this, estiloDialogo())
+        new Construtor()
                 .setTitle(f.artista.isEmpty() ? f.titulo : f.artista + " – " + f.titulo)
                 .setView(rolagem)
                 .setPositiveButton("Fechar", null)
@@ -1088,7 +1088,7 @@ public class MainActivity extends Activity {
         t.setLineSpacing(0, 1.2f);
         t.setPadding(dp(22), dp(8), dp(22), dp(12));
         rolagem.addView(t);
-        new AlertDialog.Builder(this, estiloDialogo()).setTitle("Estatísticas").setView(rolagem).setPositiveButton("Fechar", null).show();
+        new Construtor().setTitle("Estatísticas").setView(rolagem).setPositiveButton("Fechar", null).show();
     }
 
     private void renomear(final Faixa f) {
@@ -1100,7 +1100,7 @@ public class MainActivity extends Activity {
         FrameLayout caixa = new FrameLayout(this);
         caixa.setPadding(dp(22), dp(8), dp(22), 0);
         caixa.addView(campo);
-        new AlertDialog.Builder(this, estiloDialogo())
+        new Construtor()
                 .setTitle("Renomear")
                 .setView(caixa)
                 .setPositiveButton("Salvar", (d, q) -> aplicarNome(f, campo.getText().toString()))
@@ -1143,7 +1143,7 @@ public class MainActivity extends Activity {
     }
 
     private void excluir(final Faixa f) {
-        new AlertDialog.Builder(this, estiloDialogo())
+        new Construtor()
                 .setTitle("Excluir do pendrive?")
                 .setMessage(f.nome + "\n\nO arquivo será apagado e não dá para desfazer.")
                 .setPositiveButton("Excluir", (d, q) -> new Thread(() -> {
@@ -1220,7 +1220,7 @@ public class MainActivity extends Activity {
         final int[] minutos = {15, 30, 45, 60, 90};
         String[] nomes = new String[minutos.length];
         for (int i = 0; i < minutos.length; i++) nomes[i] = minutos[i] + " minutos";
-        new AlertDialog.Builder(this, estiloDialogo())
+        new Construtor()
                 .setTitle("Pausar a música em")
                 .setItems(nomes, (d, qual) -> {
                     desligar = () -> {
@@ -1258,6 +1258,35 @@ public class MainActivity extends Activity {
         getWindow().getDecorView().setSystemUiVisibility(flags);
     }
 
+    /** Dialogos no visual do app: fundo arredondado na cor do tema e botoes na cor de destaque. */
+    private final class Construtor extends AlertDialog.Builder {
+        Construtor() {
+            super(MainActivity.this, estiloDialogo());
+        }
+
+        @Override
+        public AlertDialog show() {
+            AlertDialog d = create();
+            d.show();
+            try {
+                if (d.getWindow() != null) {
+                    d.getWindow().setBackgroundDrawable(new android.graphics.drawable.InsetDrawable(forma(CARTAO, 22, LINHA), dp(6)));
+                }
+                int[] botoes = {AlertDialog.BUTTON_POSITIVE, AlertDialog.BUTTON_NEGATIVE, AlertDialog.BUTTON_NEUTRAL};
+                for (int b : botoes) {
+                    TextView t = d.getButton(b);
+                    if (t != null) t.setTextColor(b == AlertDialog.BUTTON_POSITIVE ? ACENTO : SUAVE);
+                }
+                int idTitulo = getResources().getIdentifier("alertTitle", "id", "android");
+                View titulo = idTitulo == 0 ? null : d.findViewById(idTitulo);
+                if (titulo instanceof TextView) ((TextView) titulo).setTextColor(TEXTO);
+            } catch (Exception e) {
+                // o visual padrao do dialogo continua valendo
+            }
+            return d;
+        }
+    }
+
     private int estiloDialogo() {
         return temaClaro ? android.R.style.Theme_Material_Light_Dialog_Alert : android.R.style.Theme_Material_Dialog_Alert;
     }
@@ -1276,7 +1305,7 @@ public class MainActivity extends Activity {
         col.setOrientation(LinearLayout.VERTICAL);
         col.setPadding(dp(20), dp(8), dp(20), dp(8));
         rolagem.addView(col);
-        final AlertDialog dialogo = new AlertDialog.Builder(this, estiloDialogo()).setTitle("Aparência").setView(rolagem)
+        final AlertDialog dialogo = new Construtor().setTitle("Aparência").setView(rolagem)
                 .setNegativeButton("Padrão", (d, q) -> {
                     prefs.cores(0, 0);
                     recreate();
@@ -1367,7 +1396,7 @@ public class MainActivity extends Activity {
             });
             col.addView(s);
         }
-        new AlertDialog.Builder(this, estiloDialogo()).setTitle(fundo ? "Cor do fundo" : "Cor de destaque").setView(col)
+        new Construtor().setTitle(fundo ? "Cor do fundo" : "Cor de destaque").setView(col)
                 .setPositiveButton("Usar", (d, q) -> {
                     if (fundo) prefs.cores(atual[0], prefs.corAcento()); else prefs.cores(prefs.corFundo(), atual[0]);
                     recreate();
@@ -1938,7 +1967,7 @@ public class MainActivity extends Activity {
     }
 
     private void perguntarAtualizar() {
-        new AlertDialog.Builder(this, estiloDialogo())
+        new Construtor()
                 .setTitle("Nova versão disponível")
                 .setMessage("Atualizar agora? Suas músicas e curtidas continuam como estão.")
                 .setPositiveButton("Atualizar", (d, q) -> baixarEInstalar())
@@ -1948,14 +1977,14 @@ public class MainActivity extends Activity {
 
     private void baixarEInstalar() {
         if (!Atualizador.podeInstalar(this)) {
-            new AlertDialog.Builder(this, estiloDialogo())
+            new Construtor()
                     .setMessage("Para atualizar, permita que o Raccoon Music instale atualizações. Depois de permitir, volte e toque em Atualizar de novo.")
                     .setPositiveButton("Permitir", (d, q) -> Atualizador.pedirPermissao(this))
                     .setNegativeButton("Agora não", null)
                     .show();
             return;
         }
-        final AlertDialog espera = new AlertDialog.Builder(this, estiloDialogo())
+        final AlertDialog espera = new Construtor()
                 .setMessage("Baixando a atualização… 0%")
                 .setCancelable(false)
                 .show();
