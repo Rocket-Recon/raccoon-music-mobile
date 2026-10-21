@@ -122,6 +122,7 @@ public class MainActivity extends Activity {
     private ImageView capaMini;
     private IconeView notaMini, notaGrande, icPlayMini, icProximaMini, icMenu, icLetra;
     private FrameLayout celulaMais, celulaAleatorio;
+    private TextView btnVazio;
     private View telaTocando;
     private ScrollView painelLetra;
     private EditText edtBusca;
@@ -284,7 +285,9 @@ public class MainActivity extends Activity {
             posicao.put(faixas.get(i).uri, i);
         }
         aplicarFiltro();
+        atualizarCabecalho();
         restaurar();
+        atualizarPlayer();
         iniciarIndexacao();
     }
 
@@ -380,13 +383,16 @@ public class MainActivity extends Activity {
 
     private void atualizarVazio() {
         if (lblVazio == null) return;
+        if (btnVazio != null) btnVazio.setVisibility(todas.isEmpty() && !varrendo ? View.VISIBLE : View.GONE);
         boolean vazia = modoGrupos() ? grupos.isEmpty() : visiveis.isEmpty();
         boolean semBusca = edtBusca == null || edtBusca.getText().length() == 0;
         if (varrendo && todas.isEmpty()) {
             lblVazio.setText(achadasAgora > 0 ? "Procurando músicas… " + achadasAgora : "Procurando músicas…");
             lblVazio.setVisibility(View.VISIBLE);
         } else if (todas.isEmpty()) {
-            lblVazio.setText(prefs.arvore() == null ? "Escolha a pasta das suas músicas" : "Nenhuma música por aqui");
+            lblVazio.setText(prefs.arvore() == null
+                    ? "Escolha a pasta onde estão as suas músicas (no pendrive ou na memória do celular)."
+                    : "Nenhuma música foi encontrada nessa pasta.\nEscolha a pasta onde as músicas estão guardadas.");
             lblVazio.setVisibility(View.VISIBLE);
         } else if (vazia) {
             String m = "Nada encontrado";
@@ -527,6 +533,16 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void tocarTudo() {
+        if (visiveis.isEmpty()) {
+            Toast.makeText(this, "Não há músicas para tocar.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        prefs.embaralhar(false);
+        atualizarIcones();
+        tocarFila(new ArrayList<>(visiveis), 0);
+    }
+
     private void tocarAleatorio() {
         if (visiveis.isEmpty()) {
             Toast.makeText(this, "Não há músicas para tocar.", Toast.LENGTH_SHORT).show();
@@ -582,7 +598,11 @@ public class MainActivity extends Activity {
     }
 
     private void tocarPausar() {
-        if (player == null || player.getMediaItemCount() == 0) return;
+        if (player == null) return;
+        if (player.getMediaItemCount() == 0) {
+            if (!todas.isEmpty()) tocarFila(Catalogo.embaralhar(todas, -1, sorteio), 0);
+            return;
+        }
         if (player.getPlaybackState() == Player.STATE_ENDED) {
             player.seekToDefaultPosition(0);
             player.play();
@@ -624,7 +644,8 @@ public class MainActivity extends Activity {
         icPlay.definir(tocando ? IconeView.PAUSE : IconeView.PLAY, 0xFFFFFFFF);
         icPlayMini.definir(tocando ? IconeView.PAUSE : IconeView.PLAY, TEXTO);
         if (mi == null) {
-            mini.setVisibility(View.GONE);
+            lblTituloMini.setText("Nada tocando");
+            lblArtistaMini.setText(todas.isEmpty() ? "Escolha a pasta das músicas" : "Toque em uma música ou no play");
             lblTitulo.setText("Nada tocando");
             lblArtista.setText("");
             uriAtual = "";
@@ -632,7 +653,6 @@ public class MainActivity extends Activity {
             atualizarCapas(null, null);
             return;
         }
-        mini.setVisibility(View.VISIBLE);
         uriAtual = mi.mediaId;
         Faixa f = porUri.get(mi.mediaId);
         CharSequence titulo = f != null ? f.titulo : player.getMediaMetadata().title;
@@ -1207,7 +1227,7 @@ public class MainActivity extends Activity {
     private void atualizarCabecalho() {
         icMenu.definir(secao == SECAO_COLECAO ? IconeView.SETA : IconeView.MENU, TEXTO);
         celulaMais.setVisibility(secao == SECAO_PLAYLISTS ? View.VISIBLE : View.GONE);
-        celulaAleatorio.setVisibility(modoGrupos() ? View.GONE : View.VISIBLE);
+        celulaAleatorio.setVisibility(modoGrupos() || todas.isEmpty() ? View.GONE : View.VISIBLE);
     }
 
     private void menuDoTemporizador() {
@@ -1482,9 +1502,6 @@ public class MainActivity extends Activity {
         icone(IconeView.MAIS, 26, () -> novaPlaylist(null), celulaMais).definir(IconeView.MAIS, TEXTO);
         celulaMais.setVisibility(View.GONE);
         cab.addView(celulaMais, new LinearLayout.LayoutParams(dp(48), dp(48)));
-        celulaAleatorio = new FrameLayout(this);
-        icone(IconeView.ALEATORIO, 26, this::tocarAleatorio, celulaAleatorio).definir(IconeView.ALEATORIO, ACENTO);
-        cab.addView(celulaAleatorio, new LinearLayout.LayoutParams(dp(48), dp(48)));
         raiz.addView(cab);
 
         // pesquisa
@@ -1511,6 +1528,24 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams pb = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
         pb.setMargins(dp(16), dp(6), dp(16), dp(8));
         raiz.addView(edtBusca, pb);
+
+        // atalhos para tocar a lista inteira (somem nas listas de bandas, albuns, generos e playlists)
+        celulaAleatorio = new FrameLayout(this);
+        LinearLayout pilulas = new LinearLayout(this);
+        pilulas.setGravity(Gravity.CENTER_VERTICAL);
+        TextView bTocar = botao("Tocar tudo", true, this::tocarTudo);
+        bTocar.setTextColor(0xFFFFFFFF);
+        TextView bAleatorio = botao("Aleatório", false, this::tocarAleatorio);
+        LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(0, dp(42), 1f);
+        pp.setMargins(0, 0, dp(5), 0);
+        LinearLayout.LayoutParams pa = new LinearLayout.LayoutParams(0, dp(42), 1f);
+        pa.setMargins(dp(5), 0, 0, 0);
+        pilulas.addView(bTocar, pp);
+        pilulas.addView(bAleatorio, pa);
+        celulaAleatorio.addView(pilulas, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        LinearLayout.LayoutParams pcel = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        pcel.setMargins(dp(16), 0, dp(16), dp(6));
+        raiz.addView(celulaAleatorio, pcel);
 
         // lista
         FrameLayout meio = new FrameLayout(this);
@@ -1540,7 +1575,18 @@ public class MainActivity extends Activity {
         lblVazio.setSingleLine(false);
         lblVazio.setGravity(Gravity.CENTER);
         lblVazio.setPadding(dp(32), 0, dp(32), 0);
-        meio.addView(lblVazio, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER));
+        LinearLayout caixaVazia = new LinearLayout(this);
+        caixaVazia.setOrientation(LinearLayout.VERTICAL);
+        caixaVazia.setGravity(Gravity.CENTER_HORIZONTAL);
+        caixaVazia.addView(lblVazio, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        btnVazio = botao("Escolher a pasta das músicas", true, this::escolherPasta);
+        btnVazio.setTextColor(0xFFFFFFFF);
+        btnVazio.setPadding(dp(24), 0, dp(24), 0);
+        btnVazio.setVisibility(View.GONE);
+        LinearLayout.LayoutParams pbv = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(48));
+        pbv.setMargins(0, dp(16), 0, 0);
+        caixaVazia.addView(btnVazio, pbv);
+        meio.addView(caixaVazia, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER));
         raiz.addView(meio, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
         raiz.addView(montarMini(), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -1576,7 +1622,6 @@ public class MainActivity extends Activity {
         fundoMini.setColor(CARTAO);
         fundoMini.setCornerRadii(new float[]{r, r, r, r, 0, 0, 0, 0});
         mini.setBackground(fundoMini);
-        mini.setVisibility(View.GONE);
 
         barraMini = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         barraMini.setMax(1000);
@@ -1609,18 +1654,25 @@ public class MainActivity extends Activity {
         nomes.addView(lblArtistaMini);
         linha.addView(nomes, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
+        FrameLayout cAnterior = new FrameLayout(this);
+        icone(IconeView.ANTERIOR, 26, () -> {
+            if (player != null && player.getMediaItemCount() > 0) player.seekToPrevious();
+        }, cAnterior).definir(IconeView.ANTERIOR, TEXTO);
+        linha.addView(cAnterior, new LinearLayout.LayoutParams(dp(44), dp(50)));
         FrameLayout cPlay = new FrameLayout(this);
         icPlayMini = icone(IconeView.PLAY, 30, this::tocarPausar, cPlay);
         icPlayMini.definir(IconeView.PLAY, TEXTO);
-        linha.addView(cPlay, new LinearLayout.LayoutParams(dp(50), dp(50)));
+        linha.addView(cPlay, new LinearLayout.LayoutParams(dp(48), dp(50)));
         FrameLayout cProxima = new FrameLayout(this);
         icProximaMini = icone(IconeView.PROXIMA, 28, () -> {
-            if (player != null) player.seekToNext();
+            if (player != null && player.getMediaItemCount() > 0) player.seekToNext();
         }, cProxima);
         icProximaMini.definir(IconeView.PROXIMA, TEXTO);
-        linha.addView(cProxima, new LinearLayout.LayoutParams(dp(50), dp(50)));
+        linha.addView(cProxima, new LinearLayout.LayoutParams(dp(44), dp(50)));
         mini.addView(linha);
-        mini.setOnClickListener(v -> abrirTocando());
+        mini.setOnClickListener(v -> {
+            if (player != null && player.getMediaItemCount() > 0) abrirTocando();
+        });
         return mini;
     }
 
