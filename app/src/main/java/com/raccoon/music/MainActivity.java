@@ -122,7 +122,7 @@ public class MainActivity extends Activity {
     private ImageView capaMini;
     private IconeView notaMini, notaGrande, icPlayMini, icProximaMini, icMenu, icLetra;
     private FrameLayout celulaMais, celulaAleatorio;
-    private TextView btnVazio;
+    private TextView btnVazio, bOrdem, lblGaveta;
     private View telaTocando;
     private ScrollView painelLetra;
     private EditText edtBusca;
@@ -286,6 +286,7 @@ public class MainActivity extends Activity {
         }
         aplicarFiltro();
         atualizarCabecalho();
+        if (lblGaveta != null) lblGaveta.setText(faixas.size() == 1 ? "1 música" : faixas.size() + " músicas");
         restaurar();
         atualizarPlayer();
         iniciarIndexacao();
@@ -355,6 +356,9 @@ public class MainActivity extends Activity {
         } else {
             grupos = new ArrayList<>();
             visiveis = Catalogo.filtrar(faixasBase(), texto, curtidas, secao == SECAO_CURTIDAS);
+            if ((secao == SECAO_MUSICAS || secao == SECAO_CURTIDAS) && prefs.ordem() != 0) {
+                visiveis = Catalogo.ordenarPor(visiveis, prefs.ordem(), f -> etiquetas.duracao(f.uri));
+            }
         }
         if (adaptador != null) adaptador.notifyDataSetChanged();
         atualizarContagem();
@@ -531,6 +535,28 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void menuOrdenar() {
+        String[] nomes = {"Por banda", "Por título", "Mais longas primeiro"};
+        new Construtor()
+                .setTitle("Ordenar por")
+                .setSingleChoiceItems(nomes, prefs.ordem(), (d, qual) -> {
+                    prefs.ordem(qual);
+                    d.dismiss();
+                    aplicarFiltro();
+                    if (lista != null) lista.setSelection(0);
+                })
+                .show();
+    }
+
+    private void mostrarDuplicadas() {
+        List<Faixa> d = Catalogo.duplicadas(todas);
+        if (d.isEmpty()) {
+            Toast.makeText(this, "Nenhuma música duplicada", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        abrirColecao(new Grupo("Duplicadas", null, d));
+    }
+
     private void tocarTudo() {
         if (visiveis.isEmpty()) {
             Toast.makeText(this, "Não há músicas para tocar.", Toast.LENGTH_SHORT).show();
@@ -669,7 +695,32 @@ public class MainActivity extends Activity {
         adaptador.notifyDataSetChanged();  // destaca a musica que toca na lista
     }
 
+    /** O fundo do player grande ganha a cor da capa, de cima para baixo. */
+    private void tingirTocando(Bitmap b) {
+        if (telaTocando == null) return;
+        int base = FUNDO;
+        if (b != null) {
+            try {
+                Bitmap p = Bitmap.createScaledBitmap(b, 8, 8, true);
+                long r = 0, g = 0, az = 0;
+                for (int x = 0; x < 8; x++) {
+                    for (int y = 0; y < 8; y++) {
+                        int c = p.getPixel(x, y);
+                        r += Color.red(c);
+                        g += Color.green(c);
+                        az += Color.blue(c);
+                    }
+                }
+                base = Cores.misturar(FUNDO, Color.rgb((int) (r / 64), (int) (g / 64), (int) (az / 64)), 0.45);
+            } catch (Exception e) {
+                base = FUNDO;
+            }
+        }
+        telaTocando.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[]{base, FUNDO}));
+    }
+
     private void definirCapaAtual(Bitmap b) {
+        tingirTocando(b);
         capa.setImageBitmap(b);
         capaMini.setImageBitmap(b);
         notaGrande.setVisibility(b == null ? View.VISIBLE : View.GONE);
@@ -1226,6 +1277,7 @@ public class MainActivity extends Activity {
         icMenu.definir(secao == SECAO_COLECAO ? IconeView.SETA : IconeView.MENU, TEXTO);
         celulaMais.setVisibility(secao == SECAO_PLAYLISTS ? View.VISIBLE : View.GONE);
         celulaAleatorio.setVisibility(modoGrupos() || todas.isEmpty() ? View.GONE : View.VISIBLE);
+        if (bOrdem != null) bOrdem.setVisibility(secao == SECAO_MUSICAS || secao == SECAO_CURTIDAS ? View.VISIBLE : View.GONE);
     }
 
     private void menuDoTemporizador() {
@@ -1446,11 +1498,16 @@ public class MainActivity extends Activity {
         return t;
     }
 
+    /** Fundo com a onda de toque: o brilho que acompanha o dedo. */
+    private android.graphics.drawable.Drawable toque(android.graphics.drawable.Drawable fundo, android.graphics.drawable.Drawable mascara) {
+        return new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf((TEXTO & 0x00FFFFFF) | 0x26000000), fundo, mascara);
+    }
+
     private TextView botao(String rotulo, boolean destaque, Runnable acao) {
         TextView b = texto(15, TEXTO, true);
         b.setText(rotulo);
         b.setGravity(Gravity.CENTER);
-        b.setBackground(destaque ? forma(ACENTO, 24, 0) : forma(CARTAO, 24, LINHA));
+        b.setBackground(toque(destaque ? forma(ACENTO, 24, 0) : forma(CARTAO, 24, LINHA), forma(0xFF000000, 24, 0)));
         b.setOnClickListener(v -> acao.run());
         return b;
     }
@@ -1540,6 +1597,10 @@ public class MainActivity extends Activity {
         pa.setMargins(dp(5), 0, 0, 0);
         pilulas.addView(bTocar, pp);
         pilulas.addView(bAleatorio, pa);
+        bOrdem = botao("Ordem", false, this::menuOrdenar);
+        LinearLayout.LayoutParams po = new LinearLayout.LayoutParams(dp(84), dp(42));
+        po.setMargins(dp(10), 0, 0, 0);
+        pilulas.addView(bOrdem, po);
         celulaAleatorio.addView(pilulas, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         LinearLayout.LayoutParams pcel = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         pcel.setMargins(dp(16), 0, dp(16), dp(6));
@@ -1857,6 +1918,7 @@ public class MainActivity extends Activity {
         t.setText(rotulo);
         t.setGravity(Gravity.CENTER_VERTICAL);
         t.setPadding(dp(16), 0, dp(16), 0);
+        t.setBackground(toque(null, forma(0xFF000000, 12, 0)));
         t.setOnClickListener(v -> {
             fecharGaveta();
             acao.run();
@@ -1894,7 +1956,14 @@ public class MainActivity extends Activity {
         TextView nome = texto(20, TEXTO, true);
         nome.setText("Raccoon Music");
         nome.setPadding(dp(14), 0, 0, 0);
-        marca.addView(nome, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        LinearLayout nomes = new LinearLayout(this);
+        nomes.setOrientation(LinearLayout.VERTICAL);
+        nomes.addView(nome);
+        lblGaveta = texto(13, SUAVE, false);
+        lblGaveta.setPadding(dp(14), dp(2), 0, 0);
+        lblGaveta.setText(todas.size() == 1 ? "1 música" : todas.size() + " músicas");
+        nomes.addView(lblGaveta);
+        marca.addView(nomes, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         g.addView(marca);
 
         ScrollView rolagem = new ScrollView(this);
@@ -1907,6 +1976,7 @@ public class MainActivity extends Activity {
         }
         adicionarLinha(itens);
         adicionarItem(itens, itemDoMenu("Estatísticas", this::mostrarEstatisticas));
+        adicionarItem(itens, itemDoMenu("Músicas duplicadas", this::mostrarDuplicadas));
         adicionarItem(itens, itemDoMenu("Aparência", this::escolherCores));
         itemTemporizador = itemDoMenu("Temporizador", this::menuDoTemporizador);
         adicionarItem(itens, itemTemporizador);
@@ -1933,7 +2003,7 @@ public class MainActivity extends Activity {
             boolean atual = i == (secao == SECAO_COLECAO ? secaoAnterior : secao);
             itensSecao[i].setTextColor(atual ? ACENTO : TEXTO);
             itensSecao[i].setTypeface(null, atual ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
-            itensSecao[i].setBackground(atual ? forma(LINHA, 12, 0) : null);
+            itensSecao[i].setBackground(toque(atual ? forma(LINHA, 12, 0) : null, forma(0xFF000000, 12, 0)));
         }
     }
 
@@ -2102,6 +2172,7 @@ public class MainActivity extends Activity {
                 LinearLayout linha = new LinearLayout(MainActivity.this);
                 linha.setGravity(Gravity.CENTER_VERTICAL);
                 linha.setPadding(dp(14), dp(6), dp(2), dp(6));
+                linha.setBackground(toque(null, new android.graphics.drawable.ColorDrawable(0xFF000000)));
                 nova.caixaCapa = new FrameLayout(MainActivity.this);
                 nova.caixaCapa.setBackground(forma(LINHA, 10, 0));
                 nova.capa = new ImageView(MainActivity.this);

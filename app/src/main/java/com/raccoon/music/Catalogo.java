@@ -2,10 +2,12 @@ package com.raccoon.music;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
+import java.util.function.ToLongFunction;
 
 /** As contas da biblioteca (ordem, pesquisa, aleatorio e o arquivo guardado). Sem nada do Android, para poder ser testado. */
 public final class Catalogo {
@@ -15,6 +17,43 @@ public final class Catalogo {
     public static List<Faixa> ordenar(List<Faixa> faixas) {
         List<Faixa> r = new ArrayList<>(faixas);
         Collections.sort(r, (a, b) -> a.chave.compareTo(b.chave));
+        return r;
+    }
+
+    /** Chave para achar copias: "Banda - Musica (1)" e "Banda - Musica" contam como a mesma. */
+    public static String chaveDuplicada(Faixa f) {
+        return f.busca.replaceAll("\\s*\\(\\d+\\)$", "").replaceAll("\\s*-?\\s*(copia|copy)$", "").trim();
+    }
+
+    /** As musicas que aparecem mais de uma vez, juntas e em ordem alfabetica. */
+    public static List<Faixa> duplicadas(List<Faixa> faixas) {
+        Map<String, List<Faixa>> grupos = new LinkedHashMap<>();
+        for (Faixa f : faixas) {
+            String k = chaveDuplicada(f);
+            if (k.isEmpty()) continue;
+            List<Faixa> g = grupos.get(k);
+            if (g == null) {
+                g = new ArrayList<>();
+                grupos.put(k, g);
+            }
+            g.add(f);
+        }
+        List<String> chaves = new ArrayList<>();
+        for (Map.Entry<String, List<Faixa>> e : grupos.entrySet()) if (e.getValue().size() > 1) chaves.add(e.getKey());
+        Collections.sort(chaves);
+        List<Faixa> r = new ArrayList<>();
+        for (String k : chaves) r.addAll(grupos.get(k));
+        return r;
+    }
+
+    /** modo 0 = por banda (como veio), 1 = por titulo, 2 = as mais longas primeiro. */
+    public static List<Faixa> ordenarPor(List<Faixa> base, int modo, final ToLongFunction<Faixa> duracao) {
+        List<Faixa> r = new ArrayList<>(base);
+        if (modo == 1) {
+            Collections.sort(r, (a, b) -> Faixa.normalizar(a.titulo).compareTo(Faixa.normalizar(b.titulo)));
+        } else if (modo == 2) {
+            Collections.sort(r, (a, b) -> Long.compare(duracao.applyAsLong(b), duracao.applyAsLong(a)));
+        }
         return r;
     }
 

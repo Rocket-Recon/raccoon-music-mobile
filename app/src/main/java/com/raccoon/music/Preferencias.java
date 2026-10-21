@@ -55,6 +55,9 @@ public final class Preferencias {
     public String historico() { return sp.getString("historico", ""); }
     public void historico(String texto) { sp.edit().putString("historico", texto).apply(); }
 
+    public int ordem() { return sp.getInt("ordem", 0); }
+    public void ordem(int v) { sp.edit().putInt("ordem", v).apply(); }
+
     public boolean embaralhar() { return sp.getBoolean("embaralhar", false); }
     public void embaralhar(boolean v) { sp.edit().putBoolean("embaralhar", v).apply(); }
 
