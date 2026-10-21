@@ -21,7 +21,12 @@ import android.os.Looper;
 import android.text.Editable;
 import android.text.InputType;
 import android.text.TextUtils;
+import android.text.SpannableString;
+import android.text.Spanned;
 import android.text.TextWatcher;
+import android.text.style.ForegroundColorSpan;
+import android.text.style.RelativeSizeSpan;
+import android.text.style.StyleSpan;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.GestureDetector;
@@ -101,6 +106,8 @@ public class MainActivity extends Activity {
     private int indexadas = 0, aIndexar = 0;
     private boolean tocandoAberto = false, letraAberta = false;
     private String letraDe = "", capaAtualChave = "";
+    private Lrc lrcAtual;
+    private int linhaLrc = -2;
     private volatile String uriAtual = "";
     private float velocidade = 1f;
     private int errosSeguidos = 0;
@@ -829,6 +836,7 @@ public class MainActivity extends Activity {
                     lblPos.setText("0:00");
                     lblDur.setText("0:00");
                 }
+                if (letraAberta && lrcAtual != null && tocandoAberto) desenharLrc(pos);
                 long agora = System.currentTimeMillis();
                 if (player.isPlaying()) {
                     historico.somarTempo(500);
@@ -1194,19 +1202,81 @@ public class MainActivity extends Activity {
         if (f == null) return;
         letraDe = f.uri;
         painelLetra.scrollTo(0, 0);
+        lrcAtual = null;
+        linhaLrc = -2;
         String guardada = Letras.guardada(this, f);
         if (guardada != null) {
-            lblLetra.setText(guardada);
+            exibirLetra(guardada, Letras.sincronizada(this, f));
+            if (!Letras.jaTentouSincronizada(this, f)) {
+                // letra guardada de antes, sem a versao com tempo: tenta uma vez buscar essa versao
+                new Thread(() -> {
+                    Letras.buscar(this, f);
+                    final String sinc = Letras.sincronizada(this, f);
+                    if (sinc == null) return;
+                    ui.post(() -> {
+                        if (letraAberta && f.uri.equals(uriAtual)) exibirLetra(Letras.guardada(this, f), sinc);
+                    });
+                }).start();
+            }
             return;
         }
+        lblLetra.setTextColor(TEXTO);
         lblLetra.setText("Buscando a letra…");
         new Thread(() -> {
             final String letra = Letras.buscar(this, f);
+            final String sinc = Letras.sincronizada(this, f);
             ui.post(() -> {
                 if (!letraAberta || !f.uri.equals(uriAtual)) return;
-                lblLetra.setText(letra == null ? "Não achei a letra dessa música." : letra);
+                if (letra == null && sinc == null) {
+                    lblLetra.setTextColor(TEXTO);
+                    lblLetra.setText("Não achei a letra dessa música.");
+                } else {
+                    exibirLetra(letra, sinc);
+                }
             });
         }).start();
+    }
+
+    /** Mostra a letra: com tempo (a linha cantada fica em destaque e a tela acompanha) ou so o texto. */
+    private void exibirLetra(String simples, String sinc) {
+        Lrc l = sinc == null ? null : Lrc.ler(sinc);
+        lrcAtual = l;
+        linhaLrc = -2;
+        if (l != null) {
+            desenharLrc(player == null ? 0L : player.getCurrentPosition());
+        } else {
+            lblLetra.setTextColor(TEXTO);
+            lblLetra.setText(simples == null ? "" : simples);
+        }
+    }
+
+    private void desenharLrc(long posicaoMs) {
+        final Lrc l = lrcAtual;
+        if (l == null) return;
+        final int idx = l.indiceEm(posicaoMs + 250);
+        if (idx == linhaLrc) return;
+        linhaLrc = idx;
+        StringBuilder sb = new StringBuilder();
+        final int[] ini = new int[l.quantas() + 1];
+        for (int i = 0; i < l.quantas(); i++) {
+            ini[i] = sb.length();
+            sb.append(l.linhas[i].isEmpty() ? " " : l.linhas[i]).append('\n');
+        }
+        ini[l.quantas()] = sb.length();
+        SpannableString sp = new SpannableString(sb.toString());
+        if (idx >= 0) {
+            sp.setSpan(new ForegroundColorSpan(ACENTO), ini[idx], ini[idx + 1] - 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            sp.setSpan(new StyleSpan(android.graphics.Typeface.BOLD), ini[idx], ini[idx + 1] - 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            sp.setSpan(new RelativeSizeSpan(1.18f), ini[idx], ini[idx + 1] - 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
+        lblLetra.setTextColor(SUAVE);
+        lblLetra.setText(sp);
+        lblLetra.post(() -> {
+            android.text.Layout lay = lblLetra.getLayout();
+            if (lay == null || idx < 0) return;
+            int linha = lay.getLineForOffset(Math.min(ini[idx], Math.max(0, lblLetra.length() - 1)));
+            painelLetra.smoothScrollTo(0, Math.max(0, lay.getLineTop(linha) - painelLetra.getHeight() / 3));
+        });
     }
 
     private void mostrarLetra(final Faixa f) {
@@ -1993,7 +2063,7 @@ public class MainActivity extends Activity {
         lblLetra = new TextView(this);
         lblLetra.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17);
         lblLetra.setTextColor(TEXTO);
-        lblLetra.setLineSpacing(0, 1.2f);
+        lblLetra.setLineSpacing(0, 1.3f);
         lblLetra.setPadding(dp(18), dp(16), dp(18), dp(16));
         painelLetra.addView(lblLetra);
         caixaCapa.addView(painelLetra, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
