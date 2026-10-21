@@ -109,6 +109,8 @@ public class MainActivity extends Activity {
     private boolean tocandoAberto = false, letraAberta = false;
     private String letraDe = "", capaAtualChave = "";
     private Lrc lrcAtual;
+    private int[] inicioLinhasLrc = new int[0];
+    private float letraToqueY;
     private int linhaLrc = -2;
     private volatile String uriAtual = "";
     private float velocidade = 1f;
@@ -587,7 +589,16 @@ public class MainActivity extends Activity {
             @Override
             public boolean onDoubleTap(MotionEvent e) {
                 if (!duploCurte) return false;
-                curtirAtual();
+                float terco = e.getX() / Math.max(1, alvo.getWidth());
+                if (player != null && player.getMediaItemCount() > 0 && terco < 0.33f) {
+                    player.seekTo(Math.max(0, player.getCurrentPosition() - 10_000));
+                } else if (player != null && player.getMediaItemCount() > 0 && terco > 0.67f) {
+                    long fim = player.getDuration();
+                    long novo = player.getCurrentPosition() + 10_000;
+                    player.seekTo(fim > 0 ? Math.min(novo, Math.max(0, fim - 500)) : novo);
+                } else {
+                    curtirAtual();
+                }
                 return true;
             }
 
@@ -877,6 +888,8 @@ public class MainActivity extends Activity {
         final List<Runnable> acoes = new ArrayList<>();
         nomes.add("Letra");
         acoes.add(() -> mostrarLetra(f));
+        nomes.add("Mostrar na lista");
+        acoes.add(() -> mostrarNaLista(f));
         nomes.add("Tocar a seguir");
         acoes.add(() -> enfileirar(f, true));
         nomes.add("Adicionar à fila");
@@ -884,6 +897,10 @@ public class MainActivity extends Activity {
         nomes.add("Adicionar à playlist");
         acoes.add(() -> escolherPlaylist(f));
         if (secao == SECAO_COLECAO && colecaoPlaylist != null) {
+            nomes.add("Subir na playlist");
+            acoes.add(() -> moverNaPlaylist(f, -1));
+            nomes.add("Descer na playlist");
+            acoes.add(() -> moverNaPlaylist(f, 1));
             nomes.add("Remover desta playlist");
             acoes.add(() -> {
                 minhas.remover(colecaoPlaylist, f.chave);
@@ -1112,6 +1129,30 @@ public class MainActivity extends Activity {
         lv.setSelection(Math.max(0, player.getCurrentMediaItemIndex() - 2));
         new Construtor().setTitle("Fila de reprodução").setView(lv).setPositiveButton("Fechar", null)
                 .setNeutralButton("Salvar como playlist", (d, q) -> salvarFilaComoPlaylist()).show();
+    }
+
+    private void moverNaPlaylist(Faixa f, int delta) {
+        if (colecaoPlaylist == null || !minhas.mover(colecaoPlaylist, f.chave, delta)) {
+            Toast.makeText(this, delta < 0 ? "Já é a primeira da playlist." : "Já é a última da playlist.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        salvarPlaylists();
+        colecaoFaixas = faixasPorChaves(minhas.chaves(colecaoPlaylist));
+        aplicarFiltro();
+    }
+
+    /** Leva a lista ate a musica (usado pelo player grande e pelo menu da musica). */
+    private void mostrarNaLista(final Faixa f) {
+        fecharTocando();
+        if (secao != SECAO_MUSICAS) irPara(SECAO_MUSICAS); else edtBusca.setText("");
+        lista.post(() -> {
+            for (int i = 0; i < visiveis.size(); i++) {
+                if (visiveis.get(i).uri.equals(f.uri)) {
+                    lista.setSelection(Math.max(0, i - 2));
+                    return;
+                }
+            }
+        });
     }
 
     // ------------------------------------------------------------------ exportar
@@ -1369,6 +1410,7 @@ public class MainActivity extends Activity {
         letraAberta = !letraAberta;
         painelLetra.setVisibility(letraAberta ? View.VISIBLE : View.GONE);
         icLetra.definir(IconeView.LETRA, letraAberta ? ACENTO : ICONE);
+        telaTocando.setKeepScreenOn(letraAberta);  // lendo a letra, a tela nao apaga
         if (letraAberta) carregarLetraAtual();
     }
 
@@ -1425,6 +1467,23 @@ public class MainActivity extends Activity {
         }
     }
 
+    /** Tocar numa linha da letra com tempo leva a musica ate aquele trecho. */
+    private void irParaLinhaDaLetra() {
+        Lrc l = lrcAtual;
+        android.text.Layout lay = lblLetra.getLayout();
+        if (l == null || lay == null || player == null || inicioLinhasLrc.length != l.quantas() + 1) return;
+        int linha = lay.getLineForVertical(Math.max(0, Math.round(letraToqueY) - lblLetra.getPaddingTop()));
+        int deslocamento = lay.getLineStart(linha);
+        for (int i = 0; i < l.quantas(); i++) {
+            if (deslocamento >= inicioLinhasLrc[i] && deslocamento < inicioLinhasLrc[i + 1]) {
+                player.seekTo(l.tempos[i]);
+                linhaLrc = -2;
+                desenharLrc(l.tempos[i]);
+                return;
+            }
+        }
+    }
+
     private void desenharLrc(long posicaoMs) {
         final Lrc l = lrcAtual;
         if (l == null) return;
@@ -1438,6 +1497,7 @@ public class MainActivity extends Activity {
             sb.append(l.linhas[i].isEmpty() ? " " : l.linhas[i]).append('\n');
         }
         ini[l.quantas()] = sb.length();
+        inicioLinhasLrc = ini;
         SpannableString sp = new SpannableString(sb.toString());
         if (idx >= 0) {
             sp.setSpan(new ForegroundColorSpan(ACENTO), ini[idx], ini[idx + 1] - 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
@@ -1488,6 +1548,13 @@ public class MainActivity extends Activity {
                 .setTitle(f.artista.isEmpty() ? f.titulo : f.artista + " – " + f.titulo)
                 .setView(rolagem)
                 .setPositiveButton("Fechar", null)
+                .setNeutralButton("Copiar", (dlg, q) -> {
+                    android.content.ClipboardManager area = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                    if (area != null) {
+                        area.setPrimaryClip(android.content.ClipData.newPlainText("Letra", letra));
+                        Toast.makeText(this, "Letra copiada", Toast.LENGTH_SHORT).show();
+                    }
+                })
                 .show();
     }
 
@@ -2239,6 +2306,11 @@ public class MainActivity extends Activity {
         lblLetra.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17);
         lblLetra.setTextColor(TEXTO);
         lblLetra.setLineSpacing(0, 1.3f);
+        lblLetra.setOnTouchListener((v, ev) -> {
+            letraToqueY = ev.getY();
+            return false;
+        });
+        lblLetra.setOnClickListener(v -> irParaLinhaDaLetra());
         lblLetra.setPadding(dp(18), dp(16), dp(18), dp(16));
         painelLetra.addView(lblLetra);
         caixaCapa.addView(painelLetra, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));

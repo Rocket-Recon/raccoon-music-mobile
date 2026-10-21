@@ -50,6 +50,18 @@ public final class Playlists {
         return true;
     }
 
+    /** Sobe (delta -1) ou desce (delta +1) a musica na playlist. false se nao deu para mexer. */
+    public boolean mover(String nome, String chave, int delta) {
+        List<String> l = mapa.get(nome);
+        if (l == null) return false;
+        int i = l.indexOf(chave);
+        int j = i + delta;
+        if (i < 0 || j < 0 || j >= l.size() || delta == 0) return false;
+        l.remove(i);
+        l.add(j, chave);
+        return true;
+    }
+
     public void remover(String nome, String chave) {
         List<String> l = mapa.get(nome);
         if (l != null) l.remove(chave);
