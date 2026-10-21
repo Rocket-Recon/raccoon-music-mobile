@@ -383,6 +383,11 @@ public class MainActivity extends Activity {
             int total = faixasBase().size();
             s = visiveis.size() == total || secao == SECAO_CURTIDAS ? plural(visiveis.size(), "música", "músicas") : visiveis.size() + " de " + plural(total, "música", "músicas");
         }
+        if (!modoGrupos() && !indexando && !visiveis.isEmpty()) {
+            long soma = 0;
+            for (Faixa f : visiveis) soma += etiquetas.duracao(f.uri);
+            if (soma > 0) s += "  ·  " + Historico.duracao(soma);
+        }
         if (indexando && aIndexar > 0) s += "  ·  lendo informações " + Math.min(indexadas, aIndexar) + "/" + aIndexar;
         if (varrendo) s += "  ·  procurando músicas…";
         lblContagem.setText(s);
@@ -715,7 +720,11 @@ public class MainActivity extends Activity {
         CharSequence titulo = f != null ? f.titulo : player.getMediaMetadata().title;
         CharSequence artista = f != null ? f.artista : player.getMediaMetadata().artist;
         lblTitulo.setText(titulo == null ? "" : titulo);
-        lblArtista.setText(artista == null ? "" : artista);
+        Etiquetas.Info inf = f == null ? null : etiquetas.de(f.uri);
+        String album = inf == null || inf.album == null ? "" : inf.album;
+        String linhaArtista = artista == null ? "" : artista.toString();
+        if (!album.isEmpty()) linhaArtista = linhaArtista.isEmpty() ? album : linhaArtista + "  ·  " + album;
+        lblArtista.setText(linhaArtista);
         lblTituloMini.setText(titulo == null ? "" : titulo);
         lblArtistaMini.setText(artista == null ? "" : artista);
         lblArtistaMini.setVisibility(artista == null || artista.length() == 0 ? View.GONE : View.VISIBLE);
@@ -869,6 +878,10 @@ public class MainActivity extends Activity {
         }
         nomes.add(curtida ? "Descurtir" : "Curtir");
         acoes.add(() -> alternarCurtida(f));
+        nomes.add("Informações");
+        acoes.add(() -> mostrarInformacoes(f));
+        nomes.add("Compartilhar");
+        acoes.add(() -> compartilhar(f));
         nomes.add("Renomear");
         acoes.add(() -> renomear(f));
         nomes.add("Excluir do pendrive");
@@ -1079,7 +1092,81 @@ public class MainActivity extends Activity {
             }
         });
         lv.setSelection(Math.max(0, player.getCurrentMediaItemIndex() - 2));
-        new Construtor().setTitle("Fila de reprodução").setView(lv).setPositiveButton("Fechar", null).show();
+        new Construtor().setTitle("Fila de reprodução").setView(lv).setPositiveButton("Fechar", null)
+                .setNeutralButton("Salvar como playlist", (d, q) -> salvarFilaComoPlaylist()).show();
+    }
+
+    private void salvarFilaComoPlaylist() {
+        if (player == null) return;
+        final List<String> chaves = new ArrayList<>();
+        for (int i = 0; i < player.getMediaItemCount(); i++) {
+            Faixa f = porUri.get(player.getMediaItemAt(i).mediaId);
+            if (f != null) chaves.add(f.chave);
+        }
+        if (chaves.isEmpty()) return;
+        final EditText campo = campoDeTexto("");
+        campo.setHint("Nome da playlist");
+        new Construtor()
+                .setTitle("Salvar a fila")
+                .setView(caixaDoCampo(campo))
+                .setPositiveButton("Salvar", (d, q) -> {
+                    String nome = Playlists.limpar(campo.getText().toString());
+                    if (!minhas.criar(nome)) {
+                        Toast.makeText(this, nome.isEmpty() ? "Escreva um nome." : "Já existe uma playlist com esse nome.", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    for (String c : chaves) minhas.adicionar(nome, c);
+                    salvarPlaylists();
+                    aplicarFiltro();
+                    Toast.makeText(this, "Playlist criada com " + plural(chaves.size(), "música", "músicas"), Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton("Cancelar", null)
+                .show();
+    }
+
+    private void compartilhar(Faixa f) {
+        try {
+            Intent i = new Intent(Intent.ACTION_SEND);
+            i.setType("audio/*");
+            i.putExtra(Intent.EXTRA_STREAM, Uri.parse(f.uri));
+            i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            startActivity(Intent.createChooser(i, "Compartilhar música"));
+        } catch (Exception e) {
+            Toast.makeText(this, "Não consegui compartilhar esta música.", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void linhaDeInfo(LinearLayout pai, String rotulo, String valor) {
+        if (valor == null || valor.isEmpty()) return;
+        TextView r = texto(12, SUAVE, false);
+        r.setText(rotulo);
+        TextView v = texto(15, TEXTO, false);
+        v.setSingleLine(false);
+        v.setText(valor);
+        v.setPadding(0, 0, 0, dp(10));
+        pai.addView(r);
+        pai.addView(v);
+    }
+
+    private void mostrarInformacoes(Faixa f) {
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setPadding(dp(22), dp(8), dp(22), dp(8));
+        Etiquetas.Info inf = etiquetas.de(f.uri);
+        int vezes = historico.vezes(f.chave);
+        linhaDeInfo(col, "Arquivo", f.nome);
+        linhaDeInfo(col, "Artista", f.artista);
+        linhaDeInfo(col, "Título", f.titulo);
+        if (inf != null) {
+            linhaDeInfo(col, "Álbum", inf.album);
+            linhaDeInfo(col, "Gênero", Etiquetas.generoLegivel(inf.genero == null ? "" : inf.genero));
+            linhaDeInfo(col, "Ano", inf.ano);
+            linhaDeInfo(col, "Duração", inf.duracaoMs > 0 ? formatar(inf.duracaoMs) : "");
+        }
+        linhaDeInfo(col, "Reproduções", vezes == 0 ? "Ainda não tocou" : plural(vezes, "vez", "vezes"));
+        ScrollView rolagem = new ScrollView(this);
+        rolagem.addView(col);
+        new Construtor().setTitle("Informações").setView(rolagem).setPositiveButton("Fechar", null).show();
     }
 
     private void menuVelocidade() {
@@ -1159,37 +1246,81 @@ public class MainActivity extends Activity {
                 .show();
     }
 
+    private LinearLayout cartaoDeNumero(String numero, String rotulo) {
+        LinearLayout c = new LinearLayout(this);
+        c.setOrientation(LinearLayout.VERTICAL);
+        c.setBackground(forma(FUNDO, 14, LINHA));
+        c.setPadding(dp(14), dp(10), dp(14), dp(10));
+        TextView n = texto(24, ACENTO, true);
+        n.setText(numero);
+        TextView r = texto(12, SUAVE, false);
+        r.setText(rotulo);
+        c.addView(n);
+        c.addView(r);
+        return c;
+    }
+
+    private void linhaDeCartoes(LinearLayout pai, LinearLayout a, LinearLayout b) {
+        LinearLayout l = new LinearLayout(this);
+        LinearLayout.LayoutParams pa = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        pa.setMargins(0, 0, dp(5), 0);
+        LinearLayout.LayoutParams pb = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        pb.setMargins(dp(5), 0, 0, 0);
+        l.addView(a, pa);
+        l.addView(b, pb);
+        LinearLayout.LayoutParams pl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        pl.setMargins(0, 0, 0, dp(10));
+        pai.addView(l, pl);
+    }
+
+    private void linhaDeRanking(LinearLayout pai, int posicao, String nome, String detalhe) {
+        LinearLayout l = new LinearLayout(this);
+        l.setGravity(Gravity.CENTER_VERTICAL);
+        l.setPadding(0, dp(5), 0, dp(5));
+        TextView p = texto(14, ACENTO, true);
+        p.setText(String.valueOf(posicao));
+        l.addView(p, new LinearLayout.LayoutParams(dp(22), ViewGroup.LayoutParams.WRAP_CONTENT));
+        TextView n = texto(15, TEXTO, false);
+        n.setText(nome);
+        l.addView(n, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView d = texto(13, SUAVE, false);
+        d.setText(detalhe);
+        d.setPadding(dp(10), 0, 0, 0);
+        l.addView(d);
+        pai.addView(l);
+    }
+
+    private void tituloDeLista(LinearLayout pai, String rotulo) {
+        TextView t = texto(13, SUAVE, true);
+        t.setText(rotulo.toUpperCase());
+        t.setPadding(0, dp(8), 0, dp(4));
+        pai.addView(t);
+    }
+
     private void mostrarEstatisticas() {
         Set<String> artistas = new java.util.HashSet<>();
         for (Faixa f : todas) if (!f.artista.isEmpty()) artistas.add(Faixa.normalizar(f.artista));
-        StringBuilder sb = new StringBuilder();
-        sb.append("Músicas: ").append(todas.size()).append('\n');
-        sb.append("Artistas: ").append(artistas.size()).append('\n');
-        sb.append("Curtidas: ").append(curtidas.size()).append('\n');
-        sb.append("Reproduções: ").append(historico.totalDeVezes()).append('\n');
-        sb.append("Tempo ouvido: ").append(Historico.duracao(historico.tempoTotalMs())).append('\n');
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setPadding(dp(20), dp(8), dp(20), dp(8));
+        linhaDeCartoes(col, cartaoDeNumero(String.valueOf(todas.size()), "músicas"), cartaoDeNumero(String.valueOf(artistas.size()), "artistas"));
+        linhaDeCartoes(col, cartaoDeNumero(String.valueOf(curtidas.size()), "curtidas"), cartaoDeNumero(String.valueOf(historico.totalDeVezes()), "reproduções"));
+        linhaDeCartoes(col, cartaoDeNumero(Historico.duracao(historico.tempoTotalMs()), "tempo ouvido"), cartaoDeNumero(String.valueOf(minhas.nomes().size()), "playlists"));
         List<Faixa> top = historico.maisTocadas(todas, 5);
         if (!top.isEmpty()) {
-            sb.append("\nMais tocadas\n");
+            tituloDeLista(col, "Mais tocadas");
             for (int i = 0; i < top.size(); i++) {
                 int v = historico.vezes(top.get(i).chave);
-                sb.append(i + 1).append(". ").append(top.get(i).artista.isEmpty() ? "" : top.get(i).artista + " – ").append(top.get(i).titulo)
-                        .append("  (").append(v).append(v == 1 ? " vez)" : " vezes)").append('\n');
+                linhaDeRanking(col, i + 1, top.get(i).titulo, v + (v == 1 ? " vez" : " vezes"));
             }
         }
         List<String[]> bandas = historico.bandasMaisOuvidas(todas, 5);
         if (!bandas.isEmpty()) {
-            sb.append("\nArtistas mais ouvidos\n");
-            for (int i = 0; i < bandas.size(); i++) sb.append(i + 1).append(". ").append(bandas.get(i)[0]).append("  (").append(bandas.get(i)[1]).append(")\n");
+            tituloDeLista(col, "Artistas mais ouvidos");
+            for (int i = 0; i < bandas.size(); i++) linhaDeRanking(col, i + 1, bandas.get(i)[0], bandas.get(i)[1]);
         }
         ScrollView rolagem = new ScrollView(this);
-        TextView t = new TextView(this);
-        t.setText(sb.toString().trim());
-        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
-        t.setTextColor(temaClaro ? 0xFF18181B : 0xFFFFFFFF);
-        t.setLineSpacing(0, 1.2f);
-        t.setPadding(dp(22), dp(8), dp(22), dp(12));
-        rolagem.addView(t);
+        rolagem.addView(col);
         new Construtor().setTitle("Estatísticas").setView(rolagem).setPositiveButton("Fechar", null).show();
     }
 
