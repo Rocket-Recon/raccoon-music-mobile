@@ -20,10 +20,38 @@ public final class IconeView extends View {
     public IconeView(Context contexto, int tipo) {
         super(contexto);
         this.tipo = tipo;
+        setContentDescription(descricao(tipo));
+    }
+
+    /** O que o leitor de tela fala para cada icone. */
+    public static String descricao(int tipo) {
+        switch (tipo) {
+            case PLAY: return "Tocar";
+            case PAUSE: return "Pausar";
+            case PROXIMA: return "Próxima música";
+            case ANTERIOR: return "Música anterior";
+            case ALEATORIO: return "Aleatório";
+            case REPETIR: return "Repetir";
+            case REPETIR_UM: return "Repetir esta música";
+            case CORACAO: return "Curtir";
+            case CORACAO_CHEIO: return "Descurtir";
+            case MENU: return "Menu";
+            case SETA: return "Voltar";
+            case BAIXO: return "Fechar o player";
+            case FECHAR: return "Fechar";
+            case MAIS: return "Nova playlist";
+            case PONTOS: return "Mais opções";
+            case FILA: return "Fila";
+            case LETRA: return "Letra";
+            case PLAYLIST_MAIS: return "Adicionar à playlist";
+            case RELOGIO: return "Temporizador";
+            default: return null;
+        }
     }
 
     public void definir(int novoTipo, int novaCor) {
         if (novoTipo != tipo || novaCor != cor) {
+            if (novoTipo != tipo) setContentDescription(descricao(novoTipo));
             tipo = novoTipo;
             cor = novaCor;
             invalidate();

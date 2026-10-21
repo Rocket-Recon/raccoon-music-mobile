@@ -30,6 +30,7 @@ import android.text.style.StyleSpan;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.GestureDetector;
+import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.ViewOutlineProvider;
 import android.view.View;
@@ -97,6 +98,7 @@ public class MainActivity extends Activity {
     private final TextView[] itensSecao = new TextView[SECOES_NO_MENU];
     private TextView itemTemporizador, itemVersao;
     private boolean pararNoFim;
+    private long desligarEm;
     private List<Faixa> exportando = new ArrayList<>();
     private String exportandoNome = "", exportandoTipo = "";
     private boolean avisouAtualizacao = false;
@@ -870,6 +872,11 @@ public class MainActivity extends Activity {
                 }
                 if (letraAberta && lrcAtual != null && tocandoAberto) desenharLrc(pos);
                 long agora = System.currentTimeMillis();
+                if (desligarEm > 0 && desligarEm - agora <= 15_000 && desligarEm - agora > 0) {
+                    player.setVolume((desligarEm - agora) / 15_000f);  // a musica some aos poucos antes de pausar
+                } else if (desligarEm == 0 && player.getVolume() < 1f) {
+                    player.setVolume(1f);  // o volume nunca fica baixo depois de um temporizador cancelado
+                }
                 if (player.isPlaying()) {
                     historico.somarTempo(500);
                     tocadoMs += 500;
@@ -1774,7 +1781,9 @@ public class MainActivity extends Activity {
         if (desligar != null || pararNoFim) {
             if (desligar != null) ui.removeCallbacks(desligar);
             desligar = null;
+            desligarEm = 0;
             pararNoFim = false;
+            if (player != null && player.isConnected()) player.setVolume(1f);
             if (itemTemporizador != null) itemTemporizador.setText("Temporizador");
             Toast.makeText(this, "Temporizador cancelado", Toast.LENGTH_SHORT).show();
             return;
@@ -1794,14 +1803,19 @@ public class MainActivity extends Activity {
                     }
                     desligar = () -> {
                         desligar = null;
+                        desligarEm = 0;
                         if (itemTemporizador != null) itemTemporizador.setText("Temporizador");
                         try {
-                            if (player != null && player.isConnected()) player.pause();
+                            if (player != null && player.isConnected()) {
+                                player.pause();
+                                player.setVolume(1f);
+                            }
                         } catch (Exception e) {
                             // o app ja foi fechado: nada a pausar daqui
                         }
                     };
                     ui.postDelayed(desligar, minutos[qual] * 60_000L);
+                    desligarEm = System.currentTimeMillis() + minutos[qual] * 60_000L;
                     if (itemTemporizador != null) itemTemporizador.setText("Temporizador  ·  " + minutos[qual] + " min");
                     Toast.makeText(this, "A música pausa em " + minutos[qual] + " minutos", Toast.LENGTH_SHORT).show();
                 })
@@ -2136,6 +2150,7 @@ public class MainActivity extends Activity {
             }
         });
         lista.setOnItemLongClickListener((p, v, pos, id) -> {
+            v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
             if (modoGrupos()) {
                 if (pos >= 0 && pos < grupos.size()) opcoesDoGrupo(grupos.get(pos));
             } else if (pos >= 0 && pos < visiveis.size()) {
@@ -2159,6 +2174,7 @@ public class MainActivity extends Activity {
             if (pos >= 0 && pos < grupos.size()) abrirColecao(grupos.get(pos));
         });
         grade.setOnItemLongClickListener((p, v, pos, id) -> {
+            v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
             if (pos >= 0 && pos < grupos.size()) opcoesDoGrupo(grupos.get(pos));
             return true;
         });
