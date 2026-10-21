@@ -90,6 +90,7 @@ public class MainActivity extends Activity {
     private float toqueX = -1;
     private final TextView[] itensSecao = new TextView[SECOES_NO_MENU];
     private TextView itemTemporizador, itemVersao;
+    private boolean pararNoFim;
     private boolean avisouAtualizacao = false;
     private boolean varrendo = false;
     private List<Grupo> grupos = new ArrayList<>();
@@ -124,6 +125,7 @@ public class MainActivity extends Activity {
     private IconeView notaMini, notaGrande, icPlayMini, icProximaMini, icMenu, icLetra;
     private FrameLayout celulaMais, celulaAleatorio;
     private TextView btnVazio, bOrdem, lblGaveta;
+    private FrameLayout limparBusca;
     private View telaTocando;
     private ScrollView painelLetra;
     private EditText edtBusca;
@@ -492,6 +494,11 @@ public class MainActivity extends Activity {
                 if (p.isPlaying()) errosSeguidos = 0;
                 atualizarPlayer();
                 if (eventos.contains(Player.EVENT_MEDIA_ITEM_TRANSITION)) {
+                    if (pararNoFim) {
+                        pararNoFim = false;
+                        p.pause();
+                        if (itemTemporizador != null) itemTemporizador.setText("Temporizador");
+                    }
                     tocadoMs = 0;
                     contouEssa = false;
                     salvarUltimo();
@@ -537,7 +544,7 @@ public class MainActivity extends Activity {
     }
 
     private void menuOrdenar() {
-        String[] nomes = {"Por banda", "Por título", "Mais longas primeiro"};
+        String[] nomes = {"Por banda", "Por título", "Mais longas primeiro", "Adicionadas recentemente"};
         new Construtor()
                 .setTitle("Ordenar por")
                 .setSingleChoiceItems(nomes, prefs.ordem(), (d, qual) -> {
@@ -1307,19 +1314,27 @@ public class MainActivity extends Activity {
     }
 
     private void menuDoTemporizador() {
-        if (desligar != null) {
-            ui.removeCallbacks(desligar);
+        if (desligar != null || pararNoFim) {
+            if (desligar != null) ui.removeCallbacks(desligar);
             desligar = null;
+            pararNoFim = false;
             if (itemTemporizador != null) itemTemporizador.setText("Temporizador");
             Toast.makeText(this, "Temporizador cancelado", Toast.LENGTH_SHORT).show();
             return;
         }
         final int[] minutos = {15, 30, 45, 60, 90};
-        String[] nomes = new String[minutos.length];
+        String[] nomes = new String[minutos.length + 1];
         for (int i = 0; i < minutos.length; i++) nomes[i] = minutos[i] + " minutos";
+        nomes[minutos.length] = "Quando esta música acabar";
         new Construtor()
                 .setTitle("Pausar a música em")
                 .setItems(nomes, (d, qual) -> {
+                    if (qual == minutos.length) {
+                        pararNoFim = true;
+                        if (itemTemporizador != null) itemTemporizador.setText("Temporizador  ·  fim da música");
+                        Toast.makeText(this, "A música pausa quando esta acabar", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
                     desligar = () -> {
                         desligar = null;
                         if (itemTemporizador != null) itemTemporizador.setText("Temporizador");
@@ -1602,16 +1617,29 @@ public class MainActivity extends Activity {
         edtBusca.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
             @Override public void onTextChanged(CharSequence s, int a, int b, int c) {}
-            @Override public void afterTextChanged(Editable s) { aplicarFiltro(); }
+            @Override public void afterTextChanged(Editable s) {
+                if (limparBusca != null) limparBusca.setVisibility(s.length() > 0 ? View.VISIBLE : View.GONE);
+                aplicarFiltro();
+            }
         });
         edtBusca.setOnEditorActionListener((v, acao, ev) -> {
             InputMethodManager imm = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
             if (imm != null) imm.hideSoftInputFromWindow(v.getWindowToken(), 0);
             return true;
         });
+        edtBusca.setPadding(dp(16), 0, dp(48), 0);
+        FrameLayout caixaBusca = new FrameLayout(this);
+        caixaBusca.addView(edtBusca, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        limparBusca = new FrameLayout(this);
+        IconeView xBusca = new IconeView(this, IconeView.FECHAR);
+        xBusca.definir(IconeView.FECHAR, SUAVE);
+        limparBusca.addView(xBusca, new FrameLayout.LayoutParams(dp(18), dp(18), Gravity.CENTER));
+        limparBusca.setVisibility(View.GONE);
+        limparBusca.setOnClickListener(v -> edtBusca.setText(""));
+        caixaBusca.addView(limparBusca, new FrameLayout.LayoutParams(dp(44), ViewGroup.LayoutParams.MATCH_PARENT, Gravity.END));
         LinearLayout.LayoutParams pb = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
         pb.setMargins(dp(16), dp(6), dp(16), dp(8));
-        raiz.addView(edtBusca, pb);
+        raiz.addView(caixaBusca, pb);
 
         // atalhos para tocar a lista inteira (somem nas listas de bandas, albuns, generos e playlists)
         celulaAleatorio = new FrameLayout(this);

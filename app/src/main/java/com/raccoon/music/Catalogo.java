@@ -19,11 +19,13 @@ public final class Catalogo {
         return r;
     }
 
-    /** modo 0 = por banda (como veio), 1 = por titulo, 2 = as mais longas primeiro. */
+    /** modo 0 = por banda (como veio), 1 = por titulo, 2 = as mais longas primeiro, 3 = as mais novas no pendrive primeiro. */
     public static List<Faixa> ordenarPor(List<Faixa> base, int modo, final ToLongFunction<Faixa> duracao) {
         List<Faixa> r = new ArrayList<>(base);
         if (modo == 1) {
             Collections.sort(r, (a, b) -> Faixa.normalizar(a.titulo).compareTo(Faixa.normalizar(b.titulo)));
+        } else if (modo == 3) {
+            Collections.sort(r, (a, b) -> a.data != b.data ? Long.compare(b.data, a.data) : a.chave.compareTo(b.chave));
         } else if (modo == 2) {
             Collections.sort(r, (a, b) -> Long.compare(duracao.applyAsLong(b), duracao.applyAsLong(a)));
         }
@@ -92,7 +94,9 @@ public final class Catalogo {
     public static String serializar(List<Faixa> faixas) {
         StringBuilder sb = new StringBuilder();
         for (Faixa f : faixas) {
-            sb.append(f.uri.replace('\t', ' ').replace('\n', ' ')).append('\t').append(f.nome.replace('\t', ' ').replace('\n', ' ')).append('\n');
+            sb.append(f.uri.replace('\t', ' ').replace('\n', ' ')).append('\t').append(f.nome.replace('\t', ' ').replace('\n', ' '));
+            if (f.data > 0) sb.append('\t').append(f.data);
+            sb.append('\n');
         }
         return sb.toString();
     }
@@ -101,8 +105,18 @@ public final class Catalogo {
         List<Faixa> r = new ArrayList<>();
         if (texto == null) return r;
         for (String linha : texto.split("\n")) {
-            String[] p = linha.split("\t", 2);
-            if (p.length == 2 && !p[0].isEmpty() && !p[1].isEmpty()) r.add(new Faixa(p[0], p[1]));
+            String[] p = linha.split("\t", 3);
+            if (p.length >= 2 && !p[0].isEmpty() && !p[1].isEmpty()) {
+                long data = 0;
+                if (p.length == 3) {
+                    try {
+                        data = Long.parseLong(p[2].trim());
+                    } catch (NumberFormatException e) {
+                        data = 0;
+                    }
+                }
+                r.add(new Faixa(p[0], p[1], data));
+            }
         }
         return r;
     }

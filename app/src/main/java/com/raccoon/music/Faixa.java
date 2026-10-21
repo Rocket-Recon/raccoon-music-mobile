@@ -11,8 +11,14 @@ public final class Faixa {
     public final String titulo;
     public final String chave;    // nome sem extensao, sem acento e em minusculas (curtidas e ordem)
     public final String busca;    // artista + titulo normalizados, para a pesquisa
+    public final long data;       // quando o arquivo foi gravado (ms); 0 quando nao se sabe
 
     public Faixa(String uri, String nome) {
+        this(uri, nome, 0L);
+    }
+
+    public Faixa(String uri, String nome, long data) {
+        this.data = data;
         this.uri = uri;
         this.nome = nome;
         String base = semExtensao(nome).trim();

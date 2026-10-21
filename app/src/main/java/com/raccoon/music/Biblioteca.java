@@ -102,7 +102,7 @@ public final class Biblioteca {
         Set<String> vistas = new HashSet<>();
         ArrayDeque<String> pastas = new ArrayDeque<>();
         pastas.push(DocumentsContract.getTreeDocumentId(arvore));
-        String[] colunas = {Document.COLUMN_DOCUMENT_ID, Document.COLUMN_DISPLAY_NAME, Document.COLUMN_MIME_TYPE};
+        String[] colunas = {Document.COLUMN_DOCUMENT_ID, Document.COLUMN_DISPLAY_NAME, Document.COLUMN_MIME_TYPE, Document.COLUMN_LAST_MODIFIED};
         while (!pastas.isEmpty()) {
             String pai = pastas.pop();
             if (!vistas.add(pai)) continue;
@@ -113,6 +113,7 @@ public final class Biblioteca {
                     String id = cur.getString(0);
                     String nome = cur.getString(1);
                     String mime = cur.getString(2);
+                    long gravada = cur.isNull(3) ? 0L : cur.getLong(3);
                     if (id == null || nome == null) continue;
                     if (Document.MIME_TYPE_DIR.equals(mime)) {
                         if (!pastaIgnorada(nome)) pastas.push(id);
@@ -123,7 +124,7 @@ public final class Biblioteca {
                             // arquivo ilegivel: so nao importa
                         }
                     } else if (!nome.startsWith("._") && Faixa.ehAudio(nome, mime)) {
-                        achadas.add(new Faixa(DocumentsContract.buildDocumentUriUsingTree(arvore, id).toString(), nome));
+                        achadas.add(new Faixa(DocumentsContract.buildDocumentUriUsingTree(arvore, id).toString(), nome, gravada));
                         if (progresso != null && achadas.size() % 25 == 0) progresso.achou(achadas.size());
                     }
                 }
