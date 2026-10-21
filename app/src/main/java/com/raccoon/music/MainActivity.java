@@ -39,6 +39,7 @@ import android.view.inputmethod.InputMethodManager;
 import android.widget.BaseAdapter;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.GridView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
@@ -141,7 +142,9 @@ public class MainActivity extends Activity {
     private ScrollView painelLetra;
     private EditText edtBusca;
     private ListView lista;
+    private GridView grade;
     private Adaptador adaptador;
+    private AdaptadorGrade adaptadorGrade;
     private ImageView capa;
     private SeekBar barra;
     private IconeView icCurtir, icAleatorio, icAnterior, icPlay, icProxima, icRepetir;
@@ -160,6 +163,11 @@ public class MainActivity extends Activity {
             int n = faixas.size();
             this.sub = (n == 1 ? "1 música" : n + " músicas") + ("pc".equals(origem) ? "  ·  do PC" : "");
         }
+    }
+
+    /** Albuns, generos e playlists aparecem como grade de capas; artistas ficam em lista. */
+    private boolean modoGrade() {
+        return secao == SECAO_ALBUNS || secao == SECAO_GENEROS || secao == SECAO_PLAYLISTS;
     }
 
     private boolean modoGrupos() {
@@ -381,6 +389,11 @@ public class MainActivity extends Activity {
             }
         }
         if (adaptador != null) adaptador.notifyDataSetChanged();
+        if (adaptadorGrade != null) adaptadorGrade.notifyDataSetChanged();
+        if (grade != null && lista != null) {
+            grade.setVisibility(modoGrade() ? View.VISIBLE : View.GONE);
+            lista.setVisibility(modoGrade() ? View.GONE : View.VISIBLE);
+        }
         atualizarContagem();
         atualizarVazio();
     }
@@ -1735,6 +1748,7 @@ public class MainActivity extends Activity {
         edtBusca.setText("");
         aplicarFiltro();
         if (lista != null) lista.setSelection(0);
+        if (grade != null) grade.setSelection(0);
     }
 
     /** Abre uma lista de dentro de outra: as musicas de uma banda, de um album, de um genero ou de uma playlist. */
@@ -2130,6 +2144,26 @@ public class MainActivity extends Activity {
             return true;
         });
         meio.addView(lista, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        grade = new GridView(this);
+        grade.setNumColumns(2);
+        grade.setHorizontalSpacing(dp(14));
+        grade.setVerticalSpacing(dp(18));
+        grade.setPadding(dp(16), dp(8), dp(16), dp(16));
+        grade.setClipToPadding(false);
+        grade.setStretchMode(GridView.STRETCH_COLUMN_WIDTH);
+        grade.setSelector(android.R.color.transparent);
+        grade.setVerticalScrollBarEnabled(false);
+        adaptadorGrade = new AdaptadorGrade();
+        grade.setAdapter(adaptadorGrade);
+        grade.setOnItemClickListener((p, v, pos, id) -> {
+            if (pos >= 0 && pos < grupos.size()) abrirColecao(grupos.get(pos));
+        });
+        grade.setOnItemLongClickListener((p, v, pos, id) -> {
+            if (pos >= 0 && pos < grupos.size()) opcoesDoGrupo(grupos.get(pos));
+            return true;
+        });
+        grade.setVisibility(View.GONE);
+        meio.addView(grade, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         lblVazio = texto(16, SUAVE, false);
         lblVazio.setSingleLine(false);
         lblVazio.setGravity(Gravity.CENTER);
@@ -2663,6 +2697,58 @@ public class MainActivity extends Activity {
                     l.nota.setVisibility(View.GONE);
                 }
             });
+        }
+    }
+
+    /** Capas em duas colunas (albuns, generos e playlists): a capa da primeira musica e o nome embaixo. */
+    private final class AdaptadorGrade extends BaseAdapter {
+        @Override public int getCount() { return grupos.size(); }
+        @Override public Object getItem(int i) { return grupos.get(i); }
+        @Override public long getItemId(int i) { return i; }
+
+        @Override
+        public View getView(int i, View v, ViewGroup pai) {
+            final Linha l;
+            int lado = (getResources().getDisplayMetrics().widthPixels - dp(16 + 16 + 14)) / 2;
+            if (v == null) {
+                final Linha nova = new Linha();
+                LinearLayout cel = new LinearLayout(MainActivity.this);
+                cel.setOrientation(LinearLayout.VERTICAL);
+                nova.caixaCapa = new FrameLayout(MainActivity.this);
+                nova.caixaCapa.setBackground(forma(CARTAO, 16, LINHA));
+                arredondar(nova.caixaCapa, 16);
+                nova.capa = new ImageView(MainActivity.this);
+                nova.capa.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                nova.caixaCapa.addView(nova.capa, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+                nova.nota = new IconeView(MainActivity.this, IconeView.NOTA);
+                nova.nota.definir(IconeView.NOTA, SUAVE);
+                nova.caixaCapa.addView(nova.nota, new FrameLayout.LayoutParams(dp(40), dp(40), Gravity.CENTER));
+                cel.addView(nova.caixaCapa, new LinearLayout.LayoutParams(lado, lado));
+                nova.titulo = texto(15, TEXTO, true);
+                nova.titulo.setPadding(dp(2), dp(8), dp(2), 0);
+                nova.artista = texto(12, SUAVE, false);
+                nova.artista.setPadding(dp(2), dp(1), dp(2), 0);
+                cel.addView(nova.titulo);
+                cel.addView(nova.artista);
+                cel.setTag(nova);
+                v = cel;
+                l = nova;
+            } else {
+                l = (Linha) v.getTag();
+                ViewGroup.LayoutParams pc = l.caixaCapa.getLayoutParams();
+                if (pc.height != lado) {
+                    pc.width = lado;
+                    pc.height = lado;
+                    l.caixaCapa.setLayoutParams(pc);
+                }
+            }
+            if (i < grupos.size()) {
+                Grupo g = grupos.get(i);
+                l.titulo.setText(g.titulo);
+                l.artista.setText(g.sub);
+                ligarCapa(l, g.faixas.isEmpty() ? null : g.faixas.get(0));
+            }
+            return v;
         }
     }
 
