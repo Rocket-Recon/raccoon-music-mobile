@@ -390,9 +390,7 @@ public class MainActivity extends Activity {
             lblVazio.setText(achadasAgora > 0 ? "Procurando músicas… " + achadasAgora : "Procurando músicas…");
             lblVazio.setVisibility(View.VISIBLE);
         } else if (todas.isEmpty()) {
-            lblVazio.setText(prefs.arvore() == null
-                    ? "Escolha a pasta onde estão as suas músicas (no pendrive ou na memória do celular)."
-                    : "Nenhuma música foi encontrada nessa pasta.\nEscolha a pasta onde as músicas estão guardadas.");
+            lblVazio.setText(prefs.arvore() == null ? "" : "Nenhuma música encontrada");
             lblVazio.setVisibility(View.VISIBLE);
         } else if (vazia) {
             String m = "Nada encontrado";
