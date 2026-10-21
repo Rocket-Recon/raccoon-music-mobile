@@ -2,7 +2,6 @@ package com.raccoon.music;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -17,32 +16,6 @@ public final class Catalogo {
     public static List<Faixa> ordenar(List<Faixa> faixas) {
         List<Faixa> r = new ArrayList<>(faixas);
         Collections.sort(r, (a, b) -> a.chave.compareTo(b.chave));
-        return r;
-    }
-
-    /** Chave para achar copias: "Banda - Musica (1)" e "Banda - Musica" contam como a mesma. */
-    public static String chaveDuplicada(Faixa f) {
-        return f.busca.replaceAll("\\s*\\(\\d+\\)$", "").replaceAll("\\s*-?\\s*(copia|copy)$", "").trim();
-    }
-
-    /** As musicas que aparecem mais de uma vez, juntas e em ordem alfabetica. */
-    public static List<Faixa> duplicadas(List<Faixa> faixas) {
-        Map<String, List<Faixa>> grupos = new LinkedHashMap<>();
-        for (Faixa f : faixas) {
-            String k = chaveDuplicada(f);
-            if (k.isEmpty()) continue;
-            List<Faixa> g = grupos.get(k);
-            if (g == null) {
-                g = new ArrayList<>();
-                grupos.put(k, g);
-            }
-            g.add(f);
-        }
-        List<String> chaves = new ArrayList<>();
-        for (Map.Entry<String, List<Faixa>> e : grupos.entrySet()) if (e.getValue().size() > 1) chaves.add(e.getKey());
-        Collections.sort(chaves);
-        List<Faixa> r = new ArrayList<>();
-        for (String k : chaves) r.addAll(grupos.get(k));
         return r;
     }
 

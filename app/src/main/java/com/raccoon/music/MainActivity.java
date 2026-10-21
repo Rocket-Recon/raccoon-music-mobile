@@ -24,6 +24,7 @@ import android.text.TextUtils;
 import android.text.TextWatcher;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.view.GestureDetector;
 import android.view.MotionEvent;
 import android.view.ViewOutlineProvider;
 import android.view.View;
@@ -548,13 +549,38 @@ public class MainActivity extends Activity {
                 .show();
     }
 
-    private void mostrarDuplicadas() {
-        List<Faixa> d = Catalogo.duplicadas(todas);
-        if (d.isEmpty()) {
-            Toast.makeText(this, "Nenhuma música duplicada", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        abrirColecao(new Grupo("Duplicadas", null, d));
+    /** Deslizar para os lados troca de musica; toque duplo curte; deslizar para baixo fecha o player grande. */
+    private void gestos(View alvo, final boolean duploCurte, final boolean descerFecha, final boolean tomarToque) {
+        final GestureDetector gd = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
+            @Override
+            public boolean onDown(MotionEvent e) {
+                return tomarToque;
+            }
+
+            @Override
+            public boolean onDoubleTap(MotionEvent e) {
+                if (!duploCurte) return false;
+                curtirAtual();
+                return true;
+            }
+
+            @Override
+            public boolean onFling(MotionEvent a, MotionEvent b, float vx, float vy) {
+                if (a == null || b == null || player == null || player.getMediaItemCount() == 0) return false;
+                float dx = b.getX() - a.getX();
+                float dy = b.getY() - a.getY();
+                if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > dp(70) && Math.abs(vx) > 600) {
+                    if (dx < 0) player.seekToNext(); else player.seekToPrevious();
+                    return true;
+                }
+                if (descerFecha && dy > dp(90) && Math.abs(dy) > Math.abs(dx) && Math.abs(vy) > 600) {
+                    fecharTocando();
+                    return true;
+                }
+                return false;
+            }
+        });
+        alvo.setOnTouchListener((v, e) -> gd.onTouchEvent(e));
     }
 
     private void tocarTudo() {
@@ -1284,6 +1310,7 @@ public class MainActivity extends Activity {
         if (desligar != null) {
             ui.removeCallbacks(desligar);
             desligar = null;
+            if (itemTemporizador != null) itemTemporizador.setText("Temporizador");
             Toast.makeText(this, "Temporizador cancelado", Toast.LENGTH_SHORT).show();
             return;
         }
@@ -1295,6 +1322,7 @@ public class MainActivity extends Activity {
                 .setItems(nomes, (d, qual) -> {
                     desligar = () -> {
                         desligar = null;
+                        if (itemTemporizador != null) itemTemporizador.setText("Temporizador");
                         try {
                             if (player != null && player.isConnected()) player.pause();
                         } catch (Exception e) {
@@ -1302,6 +1330,7 @@ public class MainActivity extends Activity {
                         }
                     };
                     ui.postDelayed(desligar, minutos[qual] * 60_000L);
+                    if (itemTemporizador != null) itemTemporizador.setText("Temporizador  ·  " + minutos[qual] + " min");
                     Toast.makeText(this, "A música pausa em " + minutos[qual] + " minutos", Toast.LENGTH_SHORT).show();
                 })
                 .show();
@@ -1732,6 +1761,7 @@ public class MainActivity extends Activity {
         mini.setOnClickListener(v -> {
             if (player != null && player.getMediaItemCount() > 0) abrirTocando();
         });
+        gestos(mini, false, false, false);
         return mini;
     }
 
@@ -1808,6 +1838,7 @@ public class MainActivity extends Activity {
         lblLetra.setPadding(dp(18), dp(16), dp(18), dp(16));
         painelLetra.addView(lblLetra);
         caixaCapa.addView(painelLetra, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        gestos(caixaCapa, true, true, true);
         areaCapa.addView(caixaCapa, new FrameLayout.LayoutParams(lado, lado, Gravity.CENTER));
         col.addView(areaCapa, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
@@ -1976,7 +2007,6 @@ public class MainActivity extends Activity {
         }
         adicionarLinha(itens);
         adicionarItem(itens, itemDoMenu("Estatísticas", this::mostrarEstatisticas));
-        adicionarItem(itens, itemDoMenu("Músicas duplicadas", this::mostrarDuplicadas));
         adicionarItem(itens, itemDoMenu("Aparência", this::escolherCores));
         itemTemporizador = itemDoMenu("Temporizador", this::menuDoTemporizador);
         adicionarItem(itens, itemTemporizador);
