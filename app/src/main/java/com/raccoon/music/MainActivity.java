@@ -70,7 +70,7 @@ import java.util.Set;
 public class MainActivity extends Activity {
     private int ACENTO, FUNDO, CARTAO, LINHA, TEXTO, SUAVE, ICONE;
     private boolean temaClaro = false;
-    private static final int PEDIDO_PASTA = 11, PEDIDO_NOTIFICACAO = 12;
+    private static final int PEDIDO_PASTA = 11, PEDIDO_NOTIFICACAO = 12, PEDIDO_EXPORTAR_TEXTO = 13, PEDIDO_EXPORTAR_PASTA = 14;
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final Random sorteio = new Random();
@@ -96,6 +96,8 @@ public class MainActivity extends Activity {
     private final TextView[] itensSecao = new TextView[SECOES_NO_MENU];
     private TextView itemTemporizador, itemVersao;
     private boolean pararNoFim;
+    private List<Faixa> exportando = new ArrayList<>();
+    private String exportandoNome = "", exportandoTipo = "";
     private boolean avisouAtualizacao = false;
     private boolean varrendo = false;
     private List<Grupo> grupos = new ArrayList<>();
@@ -239,6 +241,12 @@ public class MainActivity extends Activity {
             }
             prefs.arvore(arvore.toString());
             atualizarBiblioteca();
+        }
+        if (pedido == PEDIDO_EXPORTAR_TEXTO && resultado == RESULT_OK && dados != null && dados.getData() != null) {
+            gravarListaExportada(dados.getData());
+        }
+        if (pedido == PEDIDO_EXPORTAR_PASTA && resultado == RESULT_OK && dados != null && dados.getData() != null) {
+            copiarParaPasta(dados.getData());
         }
     }
 
@@ -985,6 +993,8 @@ public class MainActivity extends Activity {
         acoes.add(() -> tocarGrupo(g, false));
         nomes.add("Tocar embaralhado");
         acoes.add(() -> tocarGrupo(g, true));
+        nomes.add("Exportar");
+        acoes.add(() -> escolherFormatoDaExportacao(g.titulo, g.faixas));
         if ("meu".equals(g.origem)) {
             nomes.add("Renomear");
             acoes.add(() -> renomearPlaylist(g.titulo));
@@ -1102,6 +1112,171 @@ public class MainActivity extends Activity {
         lv.setSelection(Math.max(0, player.getCurrentMediaItemIndex() - 2));
         new Construtor().setTitle("Fila de reprodução").setView(lv).setPositiveButton("Fechar", null)
                 .setNeutralButton("Salvar como playlist", (d, q) -> salvarFilaComoPlaylist()).show();
+    }
+
+    // ------------------------------------------------------------------ exportar
+    /** Primeiro passo: de onde vem as musicas (todas, curtidas ou uma playlist). */
+    private void escolherOrigemDaExportacao() {
+        if (todas.isEmpty()) {
+            Toast.makeText(this, "Não há músicas para exportar.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        final List<String> nomes = new ArrayList<>();
+        final List<String> titulos = new ArrayList<>();
+        final List<List<Faixa>> listas = new ArrayList<>();
+        nomes.add("Todas as músicas  ·  " + todas.size());
+        titulos.add("Todas as músicas");
+        listas.add(new ArrayList<>(todas));
+        List<Faixa> curtidasLista = new ArrayList<>();
+        for (Faixa f : todas) if (curtidas.contains(f.chave)) curtidasLista.add(f);
+        nomes.add("Curtidas  ·  " + curtidasLista.size());
+        titulos.add("Curtidas");
+        listas.add(curtidasLista);
+        for (String nome : minhas.nomes()) {
+            List<Faixa> lista = faixasPorChaves(minhas.chaves(nome));
+            nomes.add("Playlist " + nome + "  ·  " + lista.size());
+            titulos.add(nome);
+            listas.add(lista);
+        }
+        new Construtor()
+                .setTitle("Exportar músicas de")
+                .setItems(nomes.toArray(new String[0]), (d, qual) -> escolherFormatoDaExportacao(titulos.get(qual), listas.get(qual)))
+                .show();
+    }
+
+    /** Segundo passo: como exportar (copiar os arquivos, lista de nomes ou playlist .m3u). */
+    private void escolherFormatoDaExportacao(final String nome, final List<Faixa> lista) {
+        if (lista.isEmpty()) {
+            Toast.makeText(this, "Nenhuma música para exportar.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String[] formas = {"Copiar os arquivos para uma pasta", "Lista de nomes (.txt)", "Playlist (.m3u)"};
+        new Construtor()
+                .setTitle(nome + "  ·  " + plural(lista.size(), "música", "músicas"))
+                .setItems(formas, (d, qual) -> {
+                    exportando = new ArrayList<>(lista);
+                    exportandoNome = nome;
+                    if (qual == 0) {
+                        exportandoTipo = "pasta";
+                        try {
+                            startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE), PEDIDO_EXPORTAR_PASTA);
+                        } catch (Exception e) {
+                            Toast.makeText(this, "Este celular não abre o seletor de pastas.", Toast.LENGTH_LONG).show();
+                        }
+                    } else {
+                        exportandoTipo = qual == 1 ? "txt" : "m3u";
+                        Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                        i.addCategory(Intent.CATEGORY_OPENABLE);
+                        i.setType(qual == 1 ? "text/plain" : "audio/x-mpegurl");
+                        i.putExtra(Intent.EXTRA_TITLE, Exportar.nomeSeguro(nome) + (qual == 1 ? ".txt" : ".m3u"));
+                        try {
+                            startActivityForResult(i, PEDIDO_EXPORTAR_TEXTO);
+                        } catch (Exception e) {
+                            Toast.makeText(this, "Este celular não consegue salvar arquivos aqui.", Toast.LENGTH_LONG).show();
+                        }
+                    }
+                })
+                .show();
+    }
+
+    private void gravarListaExportada(final Uri destino) {
+        final List<Faixa> lista = new ArrayList<>(exportando);
+        final boolean m3u = "m3u".equals(exportandoTipo);
+        new Thread(() -> {
+            boolean gravou = false;
+            try (java.io.OutputStream out = getContentResolver().openOutputStream(destino, "wt")) {
+                if (out != null) {
+                    out.write((m3u ? Exportar.m3u(lista) : Exportar.lista(lista)).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    gravou = true;
+                }
+            } catch (Exception e) {
+                gravou = false;
+            }
+            final boolean deu = gravou;
+            ui.post(() -> Toast.makeText(this, deu ? (m3u ? "Playlist exportada" : "Lista exportada") + " com " + plural(lista.size(), "música", "músicas")
+                    : "Não consegui gravar o arquivo.", Toast.LENGTH_LONG).show());
+        }).start();
+    }
+
+    private void copiarParaPasta(final Uri arvore) {
+        final List<Faixa> lista = new ArrayList<>(exportando);
+        final boolean[] cancelado = {false};
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setPadding(dp(24), dp(12), dp(24), dp(8));
+        final TextView andamento = texto(14, TEXTO, false);
+        andamento.setText("Preparando…");
+        final TextView atual = texto(12, SUAVE, false);
+        final ProgressBar barraCopia = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        barraCopia.setMax(lista.size());
+        barraCopia.setProgressTintList(ColorStateList.valueOf(ACENTO));
+        barraCopia.setProgressBackgroundTintList(ColorStateList.valueOf(LINHA));
+        col.addView(andamento);
+        LinearLayout.LayoutParams pbc = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(8));
+        pbc.setMargins(0, dp(12), 0, dp(8));
+        col.addView(barraCopia, pbc);
+        col.addView(atual);
+        final AlertDialog dialogo = new Construtor()
+                .setTitle("Exportando")
+                .setView(col)
+                .setCancelable(false)
+                .setNegativeButton("Cancelar", (d, q) -> cancelado[0] = true)
+                .show();
+        new Thread(() -> {
+            final android.content.ContentResolver cr = getContentResolver();
+            int copiadas = 0;
+            String nomePasta = "";
+            String erro = null;
+            try {
+                Uri pai = android.provider.DocumentsContract.buildDocumentUriUsingTree(arvore, android.provider.DocumentsContract.getTreeDocumentId(arvore));
+                nomePasta = Exportar.nomeDaPasta(lista.size(), System.currentTimeMillis());
+                Uri pasta = android.provider.DocumentsContract.createDocument(cr, pai, android.provider.DocumentsContract.Document.MIME_TYPE_DIR, nomePasta);
+                if (pasta == null) throw new IllegalStateException("sem pasta");
+                for (int i = 0; i < lista.size() && !cancelado[0]; i++) {
+                    final Faixa f = lista.get(i);
+                    final int numero = i + 1;
+                    ui.post(() -> {
+                        andamento.setText(numero + " de " + lista.size());
+                        atual.setText(f.nome);
+                        barraCopia.setProgress(numero - 1);
+                    });
+                    try {
+                        Uri origem = Uri.parse(f.uri);
+                        String mime = cr.getType(origem);
+                        if (mime == null) mime = "audio/mpeg";
+                        Uri novo = android.provider.DocumentsContract.createDocument(cr, pasta, mime, f.nome);
+                        if (novo == null) continue;
+                        try (java.io.InputStream in = cr.openInputStream(origem); java.io.OutputStream out = cr.openOutputStream(novo)) {
+                            if (in == null || out == null) continue;
+                            byte[] bloco = new byte[65536];
+                            int n;
+                            while ((n = in.read(bloco)) > 0) out.write(bloco, 0, n);
+                        }
+                        copiadas++;
+                    } catch (Exception umaFalhou) {
+                        // uma musica que nao copia nao derruba as outras
+                    }
+                }
+            } catch (Exception e) {
+                erro = "Não consegui criar a pasta nesse local. Escolha outra pasta.";
+            }
+            final int feitas = copiadas;
+            final String pastaFinal = nomePasta;
+            final String erroFinal = erro;
+            ui.post(() -> {
+                try {
+                    dialogo.dismiss();
+                } catch (Exception e) {
+                    // a tela ja fechou
+                }
+                if (isFinishing()) return;
+                new Construtor()
+                        .setTitle(erroFinal != null ? "Não deu para exportar" : (cancelado[0] ? "Exportação cancelada" : "Exportação concluída"))
+                        .setMessage(erroFinal != null ? erroFinal : feitas + " de " + lista.size() + " músicas copiadas\n" + pastaFinal)
+                        .setPositiveButton("Fechar", null)
+                        .show();
+            });
+        }).start();
     }
 
     private void salvarFilaComoPlaylist() {
@@ -2236,6 +2411,7 @@ public class MainActivity extends Activity {
         }
         adicionarLinha(itens);
         adicionarItem(itens, itemDoMenu("Estatísticas", this::mostrarEstatisticas));
+        adicionarItem(itens, itemDoMenu("Exportar músicas", this::escolherOrigemDaExportacao));
         adicionarItem(itens, itemDoMenu("Aparência", this::escolherCores));
         itemTemporizador = itemDoMenu("Temporizador", this::menuDoTemporizador);
         adicionarItem(itens, itemTemporizador);
