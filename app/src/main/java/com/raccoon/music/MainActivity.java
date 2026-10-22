@@ -97,7 +97,8 @@ public class MainActivity extends Activity {
     private float toqueX = -1;
     private final TextView[] itensSecao = new TextView[SECOES_NO_MENU];
     private TextView itemTemporizador, itemVersao;
-    private boolean pararNoFim;
+    private boolean pararNoFim, pedirAleatorioAoAbrir;
+    private static final String ATALHO_ALEATORIO = "com.raccoon.music.TOCAR_ALEATORIO";
     private long desligarEm;
     private List<Faixa> exportando = new ArrayList<>();
     private String exportandoNome = "", exportandoTipo = "";
@@ -132,7 +133,7 @@ public class MainActivity extends Activity {
     private byte[] ultimaArte;
     private long ultimoSalvo = 0;
 
-    private TextView lblContagem, lblVazio, lblTitulo, lblArtista, lblPos, lblDur, lblSecao, lblTituloMini, lblArtistaMini, lblLetra, lblVelocidade;
+    private TextView lblContagem, lblVazio, lblTitulo, lblArtista, lblPos, lblDur, lblSecao, lblTituloMini, lblArtistaMini, lblLetra, lblVelocidade, lblProxima;
     private LinearLayout mini;
     private ProgressBar barraMini;
     private ImageView capaMini;
@@ -215,7 +216,33 @@ public class MainActivity extends Activity {
                 return;
             }
             ligarPlayer();
+            executarAtalho();
         }, command -> ui.post(command));
+        tratarAtalho(getIntent());
+    }
+
+    @Override
+    protected void onNewIntent(Intent intencao) {
+        super.onNewIntent(intencao);
+        setIntent(intencao);
+        tratarAtalho(intencao);
+    }
+
+    /** O atalho do icone do app ("Tocar em aleatorio"): guarda o pedido e toca assim que a biblioteca e o player estiverem prontos. */
+    private void tratarAtalho(Intent intencao) {
+        if (intencao != null && ATALHO_ALEATORIO.equals(intencao.getAction())) {
+            pedirAleatorioAoAbrir = true;
+            setIntent(new Intent(Intent.ACTION_MAIN));  // uma troca de cor (recreate) nao pode sortear de novo
+            executarAtalho();
+        }
+    }
+
+    private void executarAtalho() {
+        if (!pedirAleatorioAoAbrir || player == null || todas.isEmpty()) return;
+        pedirAleatorioAoAbrir = false;
+        prefs.embaralhar(true);
+        atualizarIcones();
+        tocarFila(Catalogo.embaralhar(todas, -1, sorteio), 0);
     }
 
     @Override
@@ -318,6 +345,7 @@ public class MainActivity extends Activity {
         atualizarCabecalho();
         if (lblGaveta != null) lblGaveta.setText(faixas.size() == 1 ? "1 música" : faixas.size() + " músicas");
         restaurar();
+        executarAtalho();
         atualizarPlayer();
         iniciarIndexacao();
     }
@@ -766,6 +794,18 @@ public class MainActivity extends Activity {
         String linhaArtista = artista == null ? "" : artista.toString();
         if (!album.isEmpty()) linhaArtista = linhaArtista.isEmpty() ? album : linhaArtista + "  ·  " + album;
         lblArtista.setText(linhaArtista);
+        String aSeguir = "";
+        if (player.hasNextMediaItem()) {
+            int ind = player.getNextMediaItemIndex();
+            if (ind >= 0 && ind < player.getMediaItemCount()) {
+                MediaItem prox = player.getMediaItemAt(ind);
+                Faixa fp = porUri.get(prox.mediaId);
+                CharSequence tp = fp != null ? fp.titulo : prox.mediaMetadata.title;
+                if (tp != null && tp.length() > 0) aSeguir = "A seguir: " + tp;
+            }
+        }
+        lblProxima.setText(aSeguir);
+        lblProxima.setVisibility(aSeguir.isEmpty() ? View.GONE : View.VISIBLE);
         lblTituloMini.setText(titulo == null ? "" : titulo);
         lblArtistaMini.setText(artista == null ? "" : artista);
         lblArtistaMini.setVisibility(artista == null || artista.length() == 0 ? View.GONE : View.VISIBLE);
@@ -1173,6 +1213,29 @@ public class MainActivity extends Activity {
                 }
             }
         });
+    }
+
+    /** Grava na pasta das musicas as curtidas e as playlists feitas aqui; o PC soma isso em "Celular > Trazer do celular". */
+    private void enviarAoPc() {
+        final String arvore = prefs.arvore();
+        if (arvore == null) {
+            Toast.makeText(this, "Escolha primeiro a pasta das músicas.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        final Map<String, List<String>> locais = new java.util.LinkedHashMap<>();
+        for (String nome : minhas.nomes()) locais.put(nome, minhas.chaves(nome));
+        final Set<String> likes = new java.util.LinkedHashSet<>(curtidas);
+        final String texto = Sincronizacao.montar(likes, locais);
+        if (texto.isEmpty()) {
+            Toast.makeText(this, "Você ainda não curtiu nem criou playlists por aqui.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        new Thread(() -> {
+            final boolean deu = Biblioteca.gravarNaRaiz(getContentResolver(), Uri.parse(arvore), Sincronizacao.ARQUIVO_PARA_O_PC, texto);
+            ui.post(() -> Toast.makeText(this, deu
+                    ? "Enviado: " + plural(likes.size(), "curtida", "curtidas") + " e " + plural(locais.size(), "playlist", "playlists") + ". No PC: Celular > Trazer do celular."
+                    : "Não consegui gravar na pasta. Se o pendrive estiver protegido, escolha a pasta de novo no menu.", Toast.LENGTH_LONG).show());
+        }).start();
     }
 
     // ------------------------------------------------------------------ exportar
@@ -2378,6 +2441,9 @@ public class MainActivity extends Activity {
         lblArtista = texto(16, SUAVE, false);
         nomes.addView(lblTitulo);
         nomes.addView(lblArtista);
+        lblProxima = texto(12, SUAVE, false);
+        lblProxima.setPadding(0, dp(3), 0, 0);
+        nomes.addView(lblProxima);
         info.addView(nomes, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         FrameLayout celulaCurtir = new FrameLayout(this);
         icCurtir = icone(IconeView.CORACAO, 30, this::curtirAtual, celulaCurtir);
@@ -2534,6 +2600,7 @@ public class MainActivity extends Activity {
         adicionarLinha(itens);
         adicionarItem(itens, itemDoMenu("Estatísticas", this::mostrarEstatisticas));
         adicionarItem(itens, itemDoMenu("Exportar músicas", this::escolherOrigemDaExportacao));
+        adicionarItem(itens, itemDoMenu("Enviar ao PC", this::enviarAoPc));
         adicionarItem(itens, itemDoMenu("Aparência", this::escolherCores));
         itemTemporizador = itemDoMenu("Temporizador", this::menuDoTemporizador);
         adicionarItem(itens, itemTemporizador);

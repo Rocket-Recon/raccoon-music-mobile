@@ -90,6 +90,34 @@ public final class Biblioteca {
         }
     }
 
+    /** Grava (ou troca) um arquivo de texto na pasta raiz escolhida. false se o pendrive nao deixa gravar. */
+    public static boolean gravarNaRaiz(ContentResolver cr, Uri arvore, String nome, String texto) {
+        try {
+            String raiz = DocumentsContract.getTreeDocumentId(arvore);
+            Uri alvo = null;
+            Uri filhos = DocumentsContract.buildChildDocumentsUriUsingTree(arvore, raiz);
+            try (Cursor cur = cr.query(filhos, new String[]{Document.COLUMN_DOCUMENT_ID, Document.COLUMN_DISPLAY_NAME}, null, null, null)) {
+                while (cur != null && cur.moveToNext()) {
+                    if (nome.equals(cur.getString(1))) {
+                        alvo = DocumentsContract.buildDocumentUriUsingTree(arvore, cur.getString(0));
+                        break;
+                    }
+                }
+            }
+            if (alvo == null) {
+                alvo = DocumentsContract.createDocument(cr, DocumentsContract.buildDocumentUriUsingTree(arvore, raiz), "application/octet-stream", nome);
+            }
+            if (alvo == null) return false;
+            try (java.io.OutputStream out = cr.openOutputStream(alvo, "wt")) {
+                if (out == null) return false;
+                out.write(texto.getBytes(StandardCharsets.UTF_8));
+            }
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     private static boolean pastaIgnorada(String nome) {
         String n = nome.toLowerCase();
         return n.startsWith(".") || n.equals("lost.dir") || n.equals("android") || n.equals("system volume information") || n.startsWith("$recycle");

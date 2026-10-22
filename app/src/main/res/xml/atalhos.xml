@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="aleatorio"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/atalho_aleatorio"
+        android:shortcutLongLabel="@string/atalho_aleatorio_longo">
+        <intent
+            android:action="com.raccoon.music.TOCAR_ALEATORIO"
+            android:targetClass="com.raccoon.music.MainActivity"
+            android:targetPackage="com.raccoon.music" />
+    </shortcut>
+</shortcuts>
