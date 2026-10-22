@@ -7,7 +7,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/** O que o Raccoon Music do PC manda para o celular: as curtidas e as playlists (arquivo raccoon-celular.tsv na pasta das musicas). */
+/** O que o Raccoon Music do PC envia para o celular: as curtidas e as playlists (arquivo raccoon-celular.tsv na pasta das musicas). */
 public final class Sincronizacao {
     public static final String ARQUIVO = "raccoon-celular.tsv";
     /** O caminho de volta: o celular grava na pasta das musicas e o PC soma o que veio. */
@@ -33,7 +33,7 @@ public final class Sincronizacao {
         return s;
     }
 
-    /** O texto que o celular manda ao PC (mesmo formato do que o PC manda para ca). */
+    /** O texto que o celular envia ao PC (mesmo formato do que o PC envia para ca). */
     public static String montar(Set<String> curtidas, Map<String, List<String>> playlists) {
         StringBuilder sb = new StringBuilder();
         for (String c : curtidas) if (!c.isEmpty()) sb.append("C\t").append(c.replace('\t', ' ').replace('\n', ' ')).append('\n');
