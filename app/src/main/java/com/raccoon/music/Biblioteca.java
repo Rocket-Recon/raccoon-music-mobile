@@ -10,7 +10,6 @@ import android.provider.DocumentsContract.Document;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -75,19 +74,11 @@ public final class Biblioteca {
     }
 
     public static void guardarSincronizacao(Context c, String texto) {
-        try (FileOutputStream out = new FileOutputStream(new File(c.getFilesDir(), ARQUIVO_SINCRONIZACAO))) {
-            out.write(texto.getBytes(StandardCharsets.UTF_8));
-        } catch (IOException e) {
-            // sem espaco: importa de novo na proxima vez
-        }
+        Arquivos.gravar(c, ARQUIVO_SINCRONIZACAO, texto);
     }
 
     public static void guardar(Context c, List<Faixa> faixas) {
-        try (FileOutputStream out = new FileOutputStream(new File(c.getFilesDir(), ARQUIVO))) {
-            out.write(Catalogo.serializar(faixas).getBytes(StandardCharsets.UTF_8));
-        } catch (IOException e) {
-            // sem espaco: o app so vai procurar de novo na proxima vez
-        }
+        Arquivos.gravar(c, ARQUIVO, Catalogo.serializar(faixas));
     }
 
     /** Grava (ou troca) um arquivo de texto na pasta raiz escolhida. false se o pendrive nao deixa gravar. */
