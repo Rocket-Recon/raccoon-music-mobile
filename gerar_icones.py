@@ -8,7 +8,7 @@ import struct
 import zlib
 from pathlib import Path
 
-COR_FUNDO = "#e9532e"
+COR_FUNDO = "#363c4a"
 PASTAS = {"mdpi": 48, "hdpi": 72, "xhdpi": 96, "xxhdpi": 144, "xxxhdpi": 192}
 
 

@@ -64,6 +64,11 @@ public final class Preferencias {
     public int repetir() { return sp.getInt("repetir", Player.REPEAT_MODE_ALL); }
     public void repetir(int v) { sp.edit().putInt("repetir", v).apply(); }
 
+    /** O PC que baixa as musicas: endereco ("192.168.0.5:8765") e codigo mostrado na janela Celular. */
+    public String pcEndereco() { return sp.getString("pc_endereco", ""); }
+    public String pcCodigo() { return sp.getString("pc_codigo", ""); }
+    public void pc(String endereco, String codigo) { sp.edit().putString("pc_endereco", endereco).putString("pc_codigo", codigo).apply(); }
+
     public String ultimoUri() { return sp.getString("ultimo_uri", null); }
     public long ultimaPosicao() { return sp.getLong("ultima_pos", 0L); }
     public void ultimo(String uri, long posicaoMs) { sp.edit().putString("ultimo_uri", uri).putLong("ultima_pos", posicaoMs).apply(); }

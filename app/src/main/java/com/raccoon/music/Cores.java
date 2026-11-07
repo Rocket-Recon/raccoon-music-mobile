@@ -4,11 +4,12 @@ package com.raccoon.music;
 public final class Cores {
     private Cores() {}
 
-    public static final int PADRAO_FUNDO = 0xFF18181B;
-    public static final int PADRAO_ACENTO = 0xFFE9532E;
+    /** Padrao do ecossistema Raccoon: fundo preto e destaque cinza-azulado (a cor secundaria do app do PC). */
+    public static final int PADRAO_FUNDO = 0xFF0B0B0D;
+    public static final int PADRAO_ACENTO = 0xFF676E7F;
 
-    public static final int[] FUNDOS = {0xFF18181B, 0xFF000000, 0xFF202124, 0xFF101522, 0xFF0F1A16, 0xFF1C1216, 0xFFF4F4F6};
-    public static final int[] ACENTOS = {0xFFE9532E, 0xFFFF8A1F, 0xFFE8B923, 0xFF2EB872, 0xFF1FB5A6, 0xFF2E8BE9, 0xFF6C5CE7, 0xFFB44EE0, 0xFFE9418A, 0xFFE03A3A, 0xFF7A8B99, 0xFF8BC34A};
+    public static final int[] FUNDOS = {0xFF0B0B0D, 0xFF0C0D11, 0xFF18181B, 0xFF17150E, 0xFF202124, 0xFF101522, 0xFF0F1A16, 0xFF1C1216, 0xFFF4F4F6};
+    public static final int[] ACENTOS = {0xFF676E7F, 0xFFE9532E, 0xFFFF8A1F, 0xFFE8B923, 0xFF2EB872, 0xFF1FB5A6, 0xFF2E8BE9, 0xFF6C5CE7, 0xFFB44EE0, 0xFFE9418A, 0xFFE03A3A, 0xFF7A8B99, 0xFF8BC34A};
 
     public static final class Paleta {
         public final int fundo, cartao, linha, texto, suave, icone, acento;

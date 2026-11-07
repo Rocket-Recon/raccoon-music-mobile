@@ -181,6 +181,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle estado) {
         super.onCreate(estado);
+        androidx.core.content.ContextCompat.registerReceiver(this, aoBaixar, new android.content.IntentFilter(BaixarService.ACAO_FIM), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED);
         prefs = new Preferencias(this);
         aplicarPaleta();
         historico = Historico.ler(prefs.historico());
@@ -260,6 +261,11 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        try {
+            unregisterReceiver(aoBaixar);
+        } catch (Exception jaSolto) {
+            // o receptor ja nao estava registrado
+        }
         if (futuro != null) MediaController.releaseFuture(futuro);  // so solta a conexao: a musica continua tocando
         super.onDestroy();
     }
@@ -2085,7 +2091,7 @@ public class MainActivity extends Activity {
         TextView b = texto(15, TEXTO, true);
         b.setText(rotulo);
         b.setGravity(Gravity.CENTER);
-        b.setBackground(toque(destaque ? forma(ACENTO, 24, 0) : forma(CARTAO, 24, LINHA), forma(0xFF000000, 24, 0)));
+        b.setBackground(toque(forma(destaque ? ACENTO : CARTAO, 24, TEXTO), forma(0xFF000000, 24, 0)));  // contorno na cor do texto (branco no tema escuro), como no app do PC
         b.setOnClickListener(v -> acao.run());
         return b;
     }
@@ -2601,6 +2607,8 @@ public class MainActivity extends Activity {
         adicionarItem(itens, itemDoMenu("Estatísticas", this::mostrarEstatisticas));
         adicionarItem(itens, itemDoMenu("Exportar músicas", this::escolherOrigemDaExportacao));
         adicionarItem(itens, itemDoMenu("Enviar ao PC", this::enviarAoPc));
+        adicionarItem(itens, itemDoMenu("Baixar música", this::baixarNoCelular));
+        adicionarItem(itens, itemDoMenu("Baixar no PC", this::baixarNoPc));
         adicionarItem(itens, itemDoMenu("Aparência", this::escolherCores));
         itemTemporizador = itemDoMenu("Temporizador", this::menuDoTemporizador);
         adicionarItem(itens, itemTemporizador);
@@ -2692,6 +2700,112 @@ public class MainActivity extends Activity {
                 break;
         }
         return super.dispatchTouchEvent(e);
+    }
+
+    // ------------------------------------------------------------------ baixar no proprio celular
+    /** Avisa o fim de um download: mostra o resultado e, se deu certo, procura a musica nova na pasta. */
+    private final android.content.BroadcastReceiver aoBaixar = new android.content.BroadcastReceiver() {
+        @Override
+        public void onReceive(android.content.Context contexto, Intent dados) {
+            if (isFinishing()) return;
+            Toast.makeText(MainActivity.this, dados.getStringExtra(BaixarService.EXTRA_MENSAGEM), Toast.LENGTH_LONG).show();
+            if (dados.getBooleanExtra(BaixarService.EXTRA_OK, false)) atualizarBiblioteca();
+        }
+    };
+
+    /** Baixa um link ou nome de musica direto no celular, para a pasta de musicas. */
+    private void baixarNoCelular() {
+        final String arvore = prefs.arvore();
+        if (arvore == null) {
+            Toast.makeText(this, "Escolha primeiro a pasta de músicas.", Toast.LENGTH_LONG).show();
+            escolherPasta();
+            return;
+        }
+        final EditText campo = campoDeTexto("");
+        campo.setHint("Link ou nome da música");
+        new Construtor()
+                .setTitle("Baixar música")
+                .setView(caixaDoCampo(campo))
+                .setPositiveButton("Baixar", (d, q) -> {
+                    String texto = campo.getText().toString().trim();
+                    if (Pedido.entrada(texto).isEmpty()) {
+                        Toast.makeText(this, "Escreva um link ou o nome da música.", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    Intent servico = new Intent(this, BaixarService.class)
+                            .putExtra(BaixarService.EXTRA_PEDIDO, texto)
+                            .putExtra(BaixarService.EXTRA_ARVORE, arvore);
+                    if (Build.VERSION.SDK_INT >= 26) startForegroundService(servico);
+                    else startService(servico);
+                    Toast.makeText(this, "Baixando… o aviso aparece quando terminar.", Toast.LENGTH_LONG).show();
+                })
+                .setNegativeButton("Cancelar", null)
+                .show();
+    }
+
+    // ------------------------------------------------------------------ baixar no PC
+    /** Pede ao Raccoon Music do PC (mesma rede) para baixar um link ou nome de musica. */
+    private void baixarNoPc() {
+        if (PcRemoto.endereco(prefs.pcEndereco()).isEmpty() || PcRemoto.codigo(prefs.pcCodigo()).isEmpty()) {
+            conectarAoPc(this::baixarNoPc);
+            return;
+        }
+        final EditText campo = campoDeTexto("");
+        campo.setHint("Link ou nome da música");
+        campo.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEND);
+        new Construtor()
+                .setTitle("Baixar no PC")
+                .setView(caixaDoCampo(campo))
+                .setPositiveButton("Enviar", (d, q) -> enviarPedido(campo.getText().toString()))
+                .setNeutralButton("PC", (d, q) -> conectarAoPc(this::baixarNoPc))
+                .setNegativeButton("Cancelar", null)
+                .show();
+    }
+
+    private void enviarPedido(String texto) {
+        final String pedido = PcRemoto.pedido(texto);
+        if (pedido.isEmpty()) {
+            Toast.makeText(this, PcRemoto.mensagem(400), Toast.LENGTH_SHORT).show();
+            return;
+        }
+        final String endereco = PcRemoto.endereco(prefs.pcEndereco());
+        final String codigo = PcRemoto.codigo(prefs.pcCodigo());
+        Toast.makeText(this, "Enviando ao PC…", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            final int status = PcRemoto.enviar(endereco, codigo, pedido);
+            ui.post(() -> {
+                if (!isFinishing()) Toast.makeText(this, PcRemoto.mensagem(status), Toast.LENGTH_LONG).show();
+            });
+        }).start();
+    }
+
+    /** Endereco e codigo do PC (os mesmos da janela "Celular" do Raccoon Music no computador). */
+    private void conectarAoPc(final Runnable depois) {
+        final EditText endereco = campoDeTexto(prefs.pcEndereco());
+        endereco.setHint("Endereço do PC (ex.: 192.168.0.5:8765)");
+        final EditText codigo = campoDeTexto(prefs.pcCodigo());
+        codigo.setHint("Código");
+        codigo.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS | android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.addView(caixaDoCampo(endereco));
+        col.addView(caixaDoCampo(codigo));
+        new Construtor()
+                .setTitle("PC")
+                .setView(col)
+                .setPositiveButton("Salvar", (d, q) -> {
+                    String e = PcRemoto.endereco(endereco.getText().toString());
+                    String c = PcRemoto.codigo(codigo.getText().toString());
+                    if (c.isEmpty()) c = PcRemoto.codigo(endereco.getText().toString());  // link completo colado no endereco
+                    if (e.isEmpty() || c.isEmpty()) {
+                        Toast.makeText(this, "Confira o endereço e o código mostrados no PC.", Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    prefs.pc(e, c);
+                    if (depois != null) depois.run();
+                })
+                .setNegativeButton("Cancelar", null)
+                .show();
     }
 
     // ------------------------------------------------------------------ atualizacao do proprio app
