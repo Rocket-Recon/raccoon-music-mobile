@@ -13,6 +13,9 @@ import android.os.IBinder;
 public class BaixarService extends Service {
     public static final String EXTRA_PEDIDO = "pedido";
     public static final String EXTRA_ARVORE = "arvore";
+    public static final String EXTRA_NOME = "nome";
+    public static final String EXTRA_FORMATO = "formato";
+    public static final String EXTRA_TAXA = "taxa";
     public static final String ACAO_FIM = "com.raccoon.music.BAIXOU";
     public static final String EXTRA_OK = "ok";
     public static final String EXTRA_MENSAGEM = "mensagem";
@@ -29,6 +32,9 @@ public class BaixarService extends Service {
     public int onStartCommand(Intent intent, int flags, final int idDaTarefa) {
         final String pedido = intent == null ? null : intent.getStringExtra(EXTRA_PEDIDO);
         final String arvore = intent == null ? null : intent.getStringExtra(EXTRA_ARVORE);
+        final String nome = intent == null ? "" : intent.getStringExtra(EXTRA_NOME);
+        final String formato = intent == null || intent.getStringExtra(EXTRA_FORMATO) == null ? "mp3" : intent.getStringExtra(EXTRA_FORMATO);
+        final int taxa = intent == null ? 320 : intent.getIntExtra(EXTRA_TAXA, 320);
         if (pedido == null || arvore == null) {
             stopSelf(idDaTarefa);
             return START_NOT_STICKY;
@@ -38,7 +44,7 @@ public class BaixarService extends Service {
         if (Build.VERSION.SDK_INT >= 29) startForeground(ID_ANDAMENTO, andamento, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
         else startForeground(ID_ANDAMENTO, andamento);
         new Thread(() -> {
-            Baixador.Resultado r = Baixador.baixar(this, pedido, arvore);
+            Baixador.Resultado r = Baixador.baixar(this, pedido, arvore, nome == null ? "" : nome, formato, taxa);
             NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
             if (nm != null) nm.notify(ID_FIM, montar(r.ok ? "Música baixada" : "Não foi possível baixar", r.mensagem, false));
             sendBroadcast(new Intent(ACAO_FIM).setPackage(getPackageName()).putExtra(EXTRA_OK, r.ok).putExtra(EXTRA_MENSAGEM, r.mensagem));
@@ -61,6 +67,7 @@ public class BaixarService extends Service {
                 .setContentText(texto)
                 .setOngoing(emAndamento)
                 .setAutoCancel(!emAndamento);
+        b.setStyle(new Notification.BigTextStyle().bigText(texto));
         if (emAndamento) b.setProgress(0, 0, true);
         return b.build();
     }

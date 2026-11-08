@@ -2713,34 +2713,137 @@ public class MainActivity extends Activity {
         }
     };
 
+    private String pedidoPendente = "";
+
     /** Baixa um link ou nome de musica direto no celular, para a pasta de musicas. */
     private void baixarNoCelular() {
-        final String arvore = prefs.arvore();
-        if (arvore == null) {
+        if (prefs.arvore() == null) {
             Toast.makeText(this, "Escolha primeiro a pasta de músicas.", Toast.LENGTH_LONG).show();
             escolherPasta();
             return;
         }
-        final EditText campo = campoDeTexto("");
+        final EditText campo = campoDeTexto(pedidoPendente);
         campo.setHint("Link ou nome da música");
         new Construtor()
                 .setTitle("Baixar música")
                 .setView(caixaDoCampo(campo))
                 .setPositiveButton("Baixar", (d, q) -> {
-                    String texto = campo.getText().toString().trim();
-                    if (Pedido.entrada(texto).isEmpty()) {
-                        Toast.makeText(this, "Escreva um link ou o nome da música.", Toast.LENGTH_SHORT).show();
-                        return;
-                    }
-                    Intent servico = new Intent(this, BaixarService.class)
-                            .putExtra(BaixarService.EXTRA_PEDIDO, texto)
-                            .putExtra(BaixarService.EXTRA_ARVORE, arvore);
-                    if (Build.VERSION.SDK_INT >= 26) startForegroundService(servico);
-                    else startService(servico);
-                    Toast.makeText(this, "Baixando… o aviso aparece quando terminar.", Toast.LENGTH_LONG).show();
+                    pedidoPendente = "";
+                    iniciarDownload(campo.getText().toString().trim());
                 })
+                .setNeutralButton("Ajustes", (d, q) -> {
+                    pedidoPendente = campo.getText().toString();
+                    ajustesDoDownload();
+                })
+                .setNegativeButton("Cancelar", (d, q) -> pedidoPendente = "")
+                .show();
+    }
+
+    /** Formato, taxa de bits e se pergunta o nome do arquivo antes de baixar (como nos ajustes do PC). */
+    private void ajustesDoDownload() {
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setPadding(dp(22), dp(8), dp(22), 0);
+        final TextView formato = linhaDeAjuste();
+        final TextView taxa = linhaDeAjuste();
+        final Runnable atualizar = () -> {
+            formato.setText("Formato do áudio:  " + prefs.baixarFormato().toUpperCase());
+            taxa.setText("Taxa de bits:  " + prefs.baixarTaxa() + " kbps");
+        };
+        atualizar.run();
+        formato.setOnClickListener(v -> {
+            prefs.baixarFormato(Pedido.proximoFormato(prefs.baixarFormato()));
+            atualizar.run();
+        });
+        taxa.setOnClickListener(v -> {
+            prefs.baixarTaxa(Pedido.proximaTaxa(prefs.baixarTaxa()));
+            atualizar.run();
+        });
+        final android.widget.CheckBox perguntar = new android.widget.CheckBox(this);
+        perguntar.setText("Perguntar o nome antes de baixar");
+        perguntar.setTextColor(TEXTO);
+        perguntar.setButtonTintList(ColorStateList.valueOf(ACENTO));
+        perguntar.setChecked(prefs.baixarPerguntarNome());
+        perguntar.setOnCheckedChangeListener((v, marcado) -> prefs.baixarPerguntarNome(marcado));
+        final TextView atualizarBaixador = linhaDeAjuste();
+        atualizarBaixador.setText("Atualizar o baixador");
+        atualizarBaixador.setOnClickListener(v -> {
+            Toast.makeText(this, "Atualizando o baixador…", Toast.LENGTH_SHORT).show();
+            new Thread(() -> {
+                final boolean deu = Baixador.atualizarAgora(this);
+                ui.post(() -> {
+                    if (!isFinishing()) Toast.makeText(this, deu ? "Baixador atualizado." : "Não consegui atualizar agora. Confira a internet.", Toast.LENGTH_LONG).show();
+                });
+            }).start();
+        });
+        col.addView(formato);
+        col.addView(taxa);
+        col.addView(perguntar);
+        col.addView(atualizarBaixador);
+        new Construtor()
+                .setTitle("Ajustes do download")
+                .setView(col)
+                .setPositiveButton("Pronto", (d, q) -> baixarNoCelular())
+                .show();
+    }
+
+    private TextView linhaDeAjuste() {
+        TextView t = texto(15, TEXTO, false);
+        t.setPadding(dp(14), dp(12), dp(14), dp(12));
+        t.setBackground(toque(forma(CARTAO, 12, LINHA), forma(0xFF000000, 12, 0)));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(0, 0, 0, dp(8));
+        t.setLayoutParams(lp);
+        return t;
+    }
+
+    /** Com a pergunta ligada, busca o titulo e deixa a pessoa renomear antes de baixar. */
+    private void iniciarDownload(final String texto) {
+        if (Pedido.entrada(texto).isEmpty()) {
+            Toast.makeText(this, "Escreva um link ou o nome da música.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (!prefs.baixarPerguntarNome()) {
+            enviarDownload(texto, "");
+            return;
+        }
+        final boolean[] cancelado = {false};
+        final AlertDialog espera = new Construtor()
+                .setMessage("Buscando a música…")
+                .setNegativeButton("Cancelar", (d, q) -> cancelado[0] = true)
+                .setOnCancelListener(d -> cancelado[0] = true)
+                .show();
+        new Thread(() -> {
+            final String titulo = Baixador.titulo(this, texto);
+            ui.post(() -> {
+                if (cancelado[0] || isFinishing()) return;
+                espera.dismiss();
+                perguntarONome(texto, titulo);
+            });
+        }).start();
+    }
+
+    private void perguntarONome(final String texto, String sugestao) {
+        final EditText campo = campoDeTexto(sugestao);
+        campo.setHint("Nome do arquivo");
+        new Construtor()
+                .setTitle("Nome do arquivo")
+                .setView(caixaDoCampo(campo))
+                .setPositiveButton("Baixar", (d, q) -> enviarDownload(texto, campo.getText().toString()))
                 .setNegativeButton("Cancelar", null)
                 .show();
+    }
+
+    private void enviarDownload(String texto, String nome) {
+        Intent servico = new Intent(this, BaixarService.class)
+                .putExtra(BaixarService.EXTRA_PEDIDO, texto)
+                .putExtra(BaixarService.EXTRA_ARVORE, prefs.arvore())
+                .putExtra(BaixarService.EXTRA_NOME, Pedido.nomeDoArquivo(nome))
+                .putExtra(BaixarService.EXTRA_FORMATO, prefs.baixarFormato())
+                .putExtra(BaixarService.EXTRA_TAXA, prefs.baixarTaxa());
+        if (Build.VERSION.SDK_INT >= 26) startForegroundService(servico);
+        else startService(servico);
+        Toast.makeText(this, "Baixando… o aviso aparece quando terminar.", Toast.LENGTH_LONG).show();
     }
 
     // ------------------------------------------------------------------ baixar no PC

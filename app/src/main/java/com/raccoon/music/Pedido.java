@@ -5,7 +5,73 @@ import java.util.List;
 
 /** Transforma o texto digitado (link ou nome de musica) na entrada que o yt-dlp entende. */
 public final class Pedido {
+    public static final String[] FORMATOS = {"mp3", "m4a", "opus", "flac"};
+    public static final int[] TAXAS = {128, 192, 256, 320};
+    public static final int MAX_NOME = 150;
+
     private Pedido() {
+    }
+
+    /** Proximo formato da lista (volta ao primeiro depois do ultimo); desconhecido vira o primeiro. */
+    public static String proximoFormato(String atual) {
+        for (int i = 0; i < FORMATOS.length; i++) {
+            if (FORMATOS[i].equals(atual)) return FORMATOS[(i + 1) % FORMATOS.length];
+        }
+        return FORMATOS[0];
+    }
+
+    public static int proximaTaxa(int atual) {
+        for (int i = 0; i < TAXAS.length; i++) {
+            if (TAXAS[i] == atual) return TAXAS[(i + 1) % TAXAS.length];
+        }
+        return TAXAS[TAXAS.length - 1];
+    }
+
+    public static String mime(String formato) {
+        switch (formato) {
+            case "m4a": return "audio/mp4";
+            case "opus": return "audio/ogg";
+            case "flac": return "audio/flac";
+            default: return "audio/mpeg";
+        }
+    }
+
+    /** Nome de arquivo valido: sem os caracteres proibidos, sem espacos repetidos nem ponto no fim; "" se nada sobrar. */
+    public static String nomeDoArquivo(String texto) {
+        if (texto == null) return "";
+        String t = texto.replaceAll("[\\\\/:*?\"<>|\\p{Cntrl}]", " ").replaceAll("\\s+", " ").trim();
+        if (t.length() > MAX_NOME) t = t.substring(0, MAX_NOME).trim();
+        while (t.endsWith(".")) t = t.substring(0, t.length() - 1).trim();
+        return t;
+    }
+
+    /** Modelo de saida do yt-dlp: com nome, o arquivo sai com ele; sem nome, com o titulo do video. */
+    public static String modelo(String pasta, String nome) {
+        String limpo = nomeDoArquivo(nome);
+        if (limpo.isEmpty()) return pasta + "/%(title)s.%(ext)s";
+        return pasta + "/" + limpo.replace("%", "%%") + ".%(ext)s";
+    }
+
+    /** Ultima linha nao vazia da saida (o titulo impresso pelo yt-dlp). */
+    public static String ultimaLinha(String saida) {
+        if (saida == null) return "";
+        String[] linhas = saida.split("\\r?\\n");
+        for (int i = linhas.length - 1; i >= 0; i--) {
+            if (!linhas[i].trim().isEmpty()) return linhas[i].trim();
+        }
+        return "";
+    }
+
+    /** Causa da falha em uma linha curta: a ultima mensagem "ERROR:" do yt-dlp, ou a ultima linha do texto. */
+    public static String resumoDoErro(String mensagem) {
+        if (mensagem == null || mensagem.trim().isEmpty()) return "motivo desconhecido";
+        String escolhida = "";
+        for (String linha : mensagem.split("\\r?\\n")) {
+            int i = linha.indexOf("ERROR:");
+            if (i >= 0) escolhida = linha.substring(i + 6).trim();
+        }
+        if (escolhida.isEmpty()) escolhida = ultimaLinha(mensagem);
+        return escolhida.length() > 220 ? escolhida.substring(0, 220) + "…" : escolhida;
     }
 
     public static boolean ehLink(String texto) {

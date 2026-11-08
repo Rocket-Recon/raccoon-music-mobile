@@ -69,6 +69,14 @@ public final class Preferencias {
     public String pcCodigo() { return sp.getString("pc_codigo", ""); }
     public void pc(String endereco, String codigo) { sp.edit().putString("pc_endereco", endereco).putString("pc_codigo", codigo).apply(); }
 
+    /** Ajustes do download no proprio celular: formato, taxa de bits e se pergunta o nome antes de baixar. */
+    public String baixarFormato() { return sp.getString("baixar_formato", "mp3"); }
+    public void baixarFormato(String v) { sp.edit().putString("baixar_formato", v).apply(); }
+    public int baixarTaxa() { return sp.getInt("baixar_taxa", 320); }
+    public void baixarTaxa(int v) { sp.edit().putInt("baixar_taxa", v).apply(); }
+    public boolean baixarPerguntarNome() { return sp.getBoolean("baixar_perguntar_nome", true); }
+    public void baixarPerguntarNome(boolean v) { sp.edit().putBoolean("baixar_perguntar_nome", v).apply(); }
+
     public String ultimoUri() { return sp.getString("ultimo_uri", null); }
     public long ultimaPosicao() { return sp.getLong("ultima_pos", 0L); }
     public void ultimo(String uri, long posicaoMs) { sp.edit().putString("ultimo_uri", uri).putLong("ultima_pos", posicaoMs).apply(); }
