@@ -77,6 +77,10 @@ public final class Preferencias {
     public boolean baixarPerguntarNome() { return sp.getBoolean("baixar_perguntar_nome", true); }
     public void baixarPerguntarNome(boolean v) { sp.edit().putBoolean("baixar_perguntar_nome", v).apply(); }
 
+    /** Tamanho da letra no player, em sp. */
+    public int tamanhoLetra() { return sp.getInt("tamanho_letra", 22); }
+    public void tamanhoLetra(int sp_) { sp.edit().putInt("tamanho_letra", sp_).apply(); }
+
     public String ultimoUri() { return sp.getString("ultimo_uri", null); }
     public long ultimaPosicao() { return sp.getLong("ultima_pos", 0L); }
     public void ultimo(String uri, long posicaoMs) { sp.edit().putString("ultimo_uri", uri).putLong("ultima_pos", posicaoMs).apply(); }

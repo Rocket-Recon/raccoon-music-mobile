@@ -95,7 +95,7 @@ public class MainActivity extends Activity {
     private View cortina, gaveta;
     private boolean gavetaAberta = false;
     private float toqueX = -1;
-    private final TextView[] itensSecao = new TextView[SECOES_NO_MENU];
+    private final View[] linhasSecao = new View[SECOES_NO_MENU];
     private TextView itemTemporizador, itemVersao;
     private boolean pararNoFim, pedirAleatorioAoAbrir;
     private static final String ATALHO_ALEATORIO = "com.raccoon.music.TOCAR_ALEATORIO";
@@ -113,11 +113,10 @@ public class MainActivity extends Activity {
     private boolean tocandoAberto = false, letraAberta = false;
     private String letraDe = "", capaAtualChave = "";
     private Lrc lrcAtual;
-    private int[] inicioLinhasLrc = new int[0];
-    private float letraToqueY;
-    private int linhaLrc = -2;
+    private long ajusteLetraMs = 0;
+    private static final int TAMANHO_LETRA_PADRAO = 22, TAMANHO_LETRA_MIN = 14, TAMANHO_LETRA_MAX = 40;
+    private static final long PASSO_AJUSTE_LETRA_MS = 250;
     private volatile String uriAtual = "";
-    private float velocidade = 1f;
     private int errosSeguidos = 0;
     private Historico historico = new Historico();
     private long tocadoMs = 0;
@@ -133,7 +132,7 @@ public class MainActivity extends Activity {
     private byte[] ultimaArte;
     private long ultimoSalvo = 0;
 
-    private TextView lblContagem, lblVazio, lblTitulo, lblArtista, lblPos, lblDur, lblSecao, lblTituloMini, lblArtistaMini, lblLetra, lblVelocidade, lblProxima;
+    private TextView lblContagem, lblVazio, lblTitulo, lblArtista, lblPos, lblDur, lblSecao, lblTituloMini, lblArtistaMini, lblProxima, lblTamanhoLetra, lblAjusteLetra;
     private LinearLayout mini;
     private ProgressBar barraMini;
     private ImageView capaMini;
@@ -142,7 +141,9 @@ public class MainActivity extends Activity {
     private TextView btnVazio, bOrdem, lblGaveta;
     private FrameLayout limparBusca;
     private View telaTocando;
-    private ScrollView painelLetra;
+    private LetraView letraView;
+    private LinearLayout blocoLetra, linhaAjusteLetra;
+    private FrameLayout caixaDaCapa;
     private EditText edtBusca;
     private ListView lista;
     private GridView grade;
@@ -899,6 +900,16 @@ public class MainActivity extends Activity {
         if (mi != null) prefs.ultimo(mi.mediaId, Math.max(0, player.getCurrentPosition()));
     }
 
+    /** Enquanto a letra está aberta, acompanha a música em passos curtos para a linha cantada trocar na hora. */
+    private final Runnable seguirLetra = new Runnable() {
+        @Override
+        public void run() {
+            if (!letraAberta) return;
+            if (player != null && tocandoAberto) desenharLrc(player.getCurrentPosition());
+            ui.postDelayed(this, 120);
+        }
+    };
+
     private final Runnable relogio = new Runnable() {
         @Override
         public void run() {
@@ -916,7 +927,6 @@ public class MainActivity extends Activity {
                     lblPos.setText("0:00");
                     lblDur.setText("0:00");
                 }
-                if (letraAberta && lrcAtual != null && tocandoAberto) desenharLrc(pos);
                 long agora = System.currentTimeMillis();
                 if (desligarEm > 0 && desligarEm - agora <= 15_000 && desligarEm - agora > 0) {
                     player.setVolume((desligarEm - agora) / 15_000f);  // a musica some aos poucos antes de pausar
@@ -983,7 +993,7 @@ public class MainActivity extends Activity {
         acoes.add(() -> compartilhar(f));
         nomes.add("Renomear");
         acoes.add(() -> renomear(f));
-        nomes.add("Excluir do pendrive");
+        nomes.add("Excluir");
         acoes.add(() -> excluir(f));
         new Construtor()
                 .setTitle(f.titulo)
@@ -1482,34 +1492,26 @@ public class MainActivity extends Activity {
         new Construtor().setTitle("Informações").setView(rolagem).setPositiveButton("Fechar", null).show();
     }
 
-    private void menuVelocidade() {
-        final float[] valores = {0.75f, 1f, 1.25f, 1.5f, 2f};
-        final String[] nomes = {"0,75x", "1x (normal)", "1,25x", "1,5x", "2x"};
-        new Construtor()
-                .setTitle("Velocidade")
-                .setItems(nomes, (d, qual) -> {
-                    velocidade = valores[qual];
-                    if (player != null) player.setPlaybackParameters(new PlaybackParameters(velocidade));
-                    lblVelocidade.setText(valores[qual] == 1f ? "1x" : nomes[qual]);
-                })
-                .show();
-    }
-
     private void alternarLetra() {
         letraAberta = !letraAberta;
-        painelLetra.setVisibility(letraAberta ? View.VISIBLE : View.GONE);
+        blocoLetra.setVisibility(letraAberta ? View.VISIBLE : View.GONE);
+        caixaDaCapa.setVisibility(letraAberta ? View.GONE : View.VISIBLE);
         icLetra.definir(IconeView.LETRA, letraAberta ? ACENTO : ICONE);
         telaTocando.setKeepScreenOn(letraAberta);  // lendo a letra, a tela nao apaga
-        if (letraAberta) carregarLetraAtual();
+        ui.removeCallbacks(seguirLetra);
+        if (letraAberta) {
+            carregarLetraAtual();
+            ui.post(seguirLetra);
+        }
     }
 
     private void carregarLetraAtual() {
         final Faixa f = faixaAtual();
         if (f == null) return;
         letraDe = f.uri;
-        painelLetra.scrollTo(0, 0);
         lrcAtual = null;
-        linhaLrc = -2;
+        ajusteLetraMs = 0;
+        pintarOpcoesDaLetra();
         String guardada = Letras.guardada(this, f);
         if (guardada != null) {
             exibirLetra(guardada, Letras.sincronizada(this, f));
@@ -1526,19 +1528,13 @@ public class MainActivity extends Activity {
             }
             return;
         }
-        lblLetra.setTextColor(TEXTO);
-        lblLetra.setText("Buscando a letra…");
+        letraView.mostrarMensagem("Buscando a letra…");
         new Thread(() -> {
             final String letra = Letras.buscar(this, f);
             final String sinc = Letras.sincronizada(this, f);
             ui.post(() -> {
                 if (!letraAberta || !f.uri.equals(uriAtual)) return;
-                if (letra == null && sinc == null) {
-                    lblLetra.setTextColor(TEXTO);
-                    lblLetra.setText("Não achei a letra dessa música.");
-                } else {
-                    exibirLetra(letra, sinc);
-                }
+                exibirLetra(letra, sinc);
             });
         }).start();
     }
@@ -1547,60 +1543,83 @@ public class MainActivity extends Activity {
     private void exibirLetra(String simples, String sinc) {
         Lrc l = sinc == null ? null : Lrc.ler(sinc);
         lrcAtual = l;
-        linhaLrc = -2;
         if (l != null) {
+            letraView.definir(l.linhas, true, "");
             desenharLrc(player == null ? 0L : player.getCurrentPosition());
+        } else if (simples != null && !simples.trim().isEmpty()) {
+            letraView.definir(simples.trim().split("\r?\n"), false, "");
         } else {
-            lblLetra.setTextColor(TEXTO);
-            lblLetra.setText(simples == null ? "" : simples);
+            letraView.mostrarMensagem("Não achei a letra dessa música.");
         }
+        pintarOpcoesDaLetra();
     }
 
     /** Tocar numa linha da letra com tempo leva a musica ate aquele trecho. */
-    private void irParaLinhaDaLetra() {
+    private void irParaLinhaDaLetra(int indice) {
         Lrc l = lrcAtual;
-        android.text.Layout lay = lblLetra.getLayout();
-        if (l == null || lay == null || player == null || inicioLinhasLrc.length != l.quantas() + 1) return;
-        int linha = lay.getLineForVertical(Math.max(0, Math.round(letraToqueY) - lblLetra.getPaddingTop()));
-        int deslocamento = lay.getLineStart(linha);
-        for (int i = 0; i < l.quantas(); i++) {
-            if (deslocamento >= inicioLinhasLrc[i] && deslocamento < inicioLinhasLrc[i + 1]) {
-                player.seekTo(l.tempos[i]);
-                linhaLrc = -2;
-                desenharLrc(l.tempos[i]);
-                return;
-            }
-        }
+        if (l == null || player == null || indice < 0 || indice >= l.quantas()) return;
+        player.seekTo(Math.max(0L, l.tempos[indice] - ajusteLetraMs));
+        desenharLrc(l.tempos[indice] - ajusteLetraMs);
     }
 
     private void desenharLrc(long posicaoMs) {
         final Lrc l = lrcAtual;
         if (l == null) return;
-        final int idx = l.indiceEm(posicaoMs + 250);
-        if (idx == linhaLrc) return;
-        linhaLrc = idx;
-        StringBuilder sb = new StringBuilder();
-        final int[] ini = new int[l.quantas() + 1];
-        for (int i = 0; i < l.quantas(); i++) {
-            ini[i] = sb.length();
-            sb.append(l.linhas[i].isEmpty() ? " " : l.linhas[i]).append('\n');
-        }
-        ini[l.quantas()] = sb.length();
-        inicioLinhasLrc = ini;
-        SpannableString sp = new SpannableString(sb.toString());
-        if (idx >= 0) {
-            sp.setSpan(new ForegroundColorSpan(ACENTO), ini[idx], ini[idx + 1] - 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            sp.setSpan(new StyleSpan(android.graphics.Typeface.BOLD), ini[idx], ini[idx + 1] - 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            sp.setSpan(new RelativeSizeSpan(1.18f), ini[idx], ini[idx + 1] - 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        }
-        lblLetra.setTextColor(SUAVE);
-        lblLetra.setText(sp);
-        lblLetra.post(() -> {
-            android.text.Layout lay = lblLetra.getLayout();
-            if (lay == null || idx < 0) return;
-            int linha = lay.getLineForOffset(Math.min(ini[idx], Math.max(0, lblLetra.length() - 1)));
-            painelLetra.smoothScrollTo(0, Math.max(0, lay.getLineTop(linha) - painelLetra.getHeight() / 3));
-        });
+        letraView.definirAtual(l.indiceEm(posicaoMs + 250 + ajusteLetraMs));
+    }
+
+    private void mudarTamanhoDaLetra(int delta) {
+        int novo = delta == 0 ? TAMANHO_LETRA_PADRAO : Math.max(TAMANHO_LETRA_MIN, Math.min(TAMANHO_LETRA_MAX, prefs.tamanhoLetra() + delta));
+        prefs.tamanhoLetra(novo);
+        letraView.definirTamanho(novo);
+        pintarOpcoesDaLetra();
+    }
+
+    /** "Velocidade" da letra: adianta ou atrasa a linha cantada em relação à música (0 volta ao padrão). */
+    private void mudarSincroniaDaLetra(long deltaMs) {
+        ajusteLetraMs = deltaMs == 0 ? 0 : ajusteLetraMs + deltaMs;
+        pintarOpcoesDaLetra();
+        if (player != null) desenharLrc(player.getCurrentPosition());
+    }
+
+    private void pintarOpcoesDaLetra() {
+        if (lblTamanhoLetra == null) return;
+        int t = prefs.tamanhoLetra();
+        lblTamanhoLetra.setText(t == TAMANHO_LETRA_PADRAO ? "Padrão" : String.valueOf(t));
+        lblAjusteLetra.setText(Lrc.rotuloDoAjuste(ajusteLetraMs));
+        linhaAjusteLetra.setVisibility(lrcAtual != null ? View.VISIBLE : View.GONE);  // letra sem tempo não tem o que ajustar
+    }
+
+    private TextView chipDaLetra(String rotulo, Runnable acao) {
+        TextView t = texto(16, TEXTO, true);
+        t.setText(rotulo);
+        t.setGravity(Gravity.CENTER);
+        t.setBackground(toque(forma(CARTAO, 18, 0), forma(0xFF000000, 18, 0)));
+        t.setOnClickListener(v -> acao.run());
+        return t;
+    }
+
+    /** Uma linha de opção da letra: rótulo à esquerda e [ - ] [ estado ] [ + ] à direita (o estado volta ao padrão ao tocar). */
+    private LinearLayout linhaDeOpcaoDaLetra(String rotulo, TextView estado, Runnable menos, Runnable padrao, Runnable mais) {
+        LinearLayout l = new LinearLayout(this);
+        l.setGravity(Gravity.CENTER_VERTICAL);
+        TextView r = texto(14, SUAVE, false);
+        r.setText(rotulo);
+        l.addView(r, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(dp(44), dp(36));
+        p.setMargins(dp(4), dp(3), dp(4), dp(3));
+        l.addView(chipDaLetra("\u2212", menos), p);
+        estado.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        estado.setGravity(Gravity.CENTER);
+        estado.setBackground(toque(forma(CARTAO, 18, 0), forma(0xFF000000, 18, 0)));
+        estado.setOnClickListener(v -> padrao.run());
+        LinearLayout.LayoutParams pe = new LinearLayout.LayoutParams(dp(92), dp(36));
+        pe.setMargins(dp(4), dp(3), dp(4), dp(3));
+        l.addView(estado, pe);
+        LinearLayout.LayoutParams pm = new LinearLayout.LayoutParams(dp(44), dp(36));
+        pm.setMargins(dp(4), dp(3), 0, dp(3));
+        l.addView(chipDaLetra("+", mais), pm);
+        return l;
     }
 
     private void mostrarLetra(final Faixa f) {
@@ -1778,7 +1797,7 @@ public class MainActivity extends Activity {
 
     private void excluir(final Faixa f) {
         new Construtor()
-                .setTitle("Excluir do pendrive?")
+                .setTitle("Excluir música?")
                 .setMessage(f.nome + "\n\nO arquivo será apagado e não dá para desfazer.")
                 .setPositiveButton("Excluir", (d, q) -> new Thread(() -> {
                     boolean apagou;
@@ -2360,16 +2379,9 @@ public class MainActivity extends Activity {
         c.setOrientation(LinearLayout.VERTICAL);
         c.setGravity(Gravity.CENTER_HORIZONTAL);
         c.setPadding(0, dp(6), 0, dp(4));
-        if (tipo >= 0) {
-            IconeView ic = new IconeView(this, tipo);
-            ic.definir(tipo, ICONE);
-            c.addView(ic, new LinearLayout.LayoutParams(dp(26), dp(26)));
-        } else {
-            lblVelocidade = texto(15, ICONE, true);
-            lblVelocidade.setText("1x");
-            lblVelocidade.setGravity(Gravity.CENTER);
-            c.addView(lblVelocidade, new LinearLayout.LayoutParams(dp(50), dp(26)));
-        }
+        IconeView ic = new IconeView(this, tipo);
+        ic.definir(tipo, ICONE);
+        c.addView(ic, new LinearLayout.LayoutParams(dp(26), dp(26)));
         TextView r = texto(11, SUAVE, false);
         r.setText(rotulo);
         r.setGravity(Gravity.CENTER);
@@ -2418,23 +2430,32 @@ public class MainActivity extends Activity {
         notaGrande = new IconeView(this, IconeView.NOTA);
         notaGrande.definir(IconeView.NOTA, SUAVE);
         caixaCapa.addView(notaGrande, new FrameLayout.LayoutParams(dp(96), dp(96), Gravity.CENTER));
-        painelLetra = new ScrollView(this);
-        painelLetra.setBackgroundColor((FUNDO & 0x00FFFFFF) | 0xEE000000);
-        painelLetra.setVisibility(View.GONE);
-        lblLetra = new TextView(this);
-        lblLetra.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17);
-        lblLetra.setTextColor(TEXTO);
-        lblLetra.setLineSpacing(0, 1.3f);
-        lblLetra.setOnTouchListener((v, ev) -> {
-            letraToqueY = ev.getY();
-            return false;
-        });
-        lblLetra.setOnClickListener(v -> irParaLinhaDaLetra());
-        lblLetra.setPadding(dp(18), dp(16), dp(18), dp(16));
-        painelLetra.addView(lblLetra);
-        caixaCapa.addView(painelLetra, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        caixaDaCapa = caixaCapa;
         gestos(caixaCapa, true, true, true);
         areaCapa.addView(caixaCapa, new FrameLayout.LayoutParams(lado, lado, Gravity.CENTER));
+
+        // a letra ocupa o lugar da capa: linha cantada em destaque, rolagem suave e as opcoes de tamanho e sincronia embaixo
+        blocoLetra = new LinearLayout(this);
+        blocoLetra.setOrientation(LinearLayout.VERTICAL);
+        blocoLetra.setVisibility(View.GONE);
+        letraView = new LetraView(this);
+        letraView.definirCores(TEXTO, TEXTO);
+        letraView.definirTamanho(prefs.tamanhoLetra());
+        letraView.aoTocarLinha(this::irParaLinhaDaLetra);
+        blocoLetra.addView(letraView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        lblTamanhoLetra = texto(13, TEXTO, true);
+        lblAjusteLetra = texto(13, TEXTO, true);
+        LinearLayout opcoesLetra = new LinearLayout(this);
+        opcoesLetra.setOrientation(LinearLayout.VERTICAL);
+        opcoesLetra.setPadding(dp(4), dp(4), dp(4), 0);
+        opcoesLetra.addView(linhaDeOpcaoDaLetra("Tamanho", lblTamanhoLetra,
+                () -> mudarTamanhoDaLetra(-2), () -> mudarTamanhoDaLetra(0), () -> mudarTamanhoDaLetra(2)));
+        linhaAjusteLetra = linhaDeOpcaoDaLetra("Velocidade", lblAjusteLetra,
+                () -> mudarSincroniaDaLetra(-PASSO_AJUSTE_LETRA_MS), () -> mudarSincroniaDaLetra(0), () -> mudarSincroniaDaLetra(PASSO_AJUSTE_LETRA_MS));
+        opcoesLetra.addView(linhaAjusteLetra);
+        blocoLetra.addView(opcoesLetra, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        areaCapa.addView(blocoLetra, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        pintarOpcoesDaLetra();
         col.addView(areaCapa, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
         LinearLayout info = new LinearLayout(this);
@@ -2512,7 +2533,6 @@ public class MainActivity extends Activity {
         icLetra = (IconeView) aLetra.getChildAt(0);
         acoes.addView(aLetra, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         acoes.addView(acaoRapida(IconeView.FILA, "Fila", this::mostrarFila), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        acoes.addView(acaoRapida(-1, "Velocidade", this::menuVelocidade), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         acoes.addView(acaoRapida(IconeView.PLAYLIST_MAIS, "Playlist", () -> {
             Faixa f = faixaAtual();
             if (f != null) escolherPlaylist(f);
@@ -2542,31 +2562,44 @@ public class MainActivity extends Activity {
     }
 
     // ------------------------------------------------------------------ menu lateral
-    private TextView itemDoMenu(String rotulo, Runnable acao) {
-        TextView t = texto(16, TEXTO, false);
+    private static final int[] ICONES_SECAO = {IconeView.NOTA, IconeView.ARTISTA, IconeView.DISCO, IconeView.ETIQUETA, IconeView.PLAYLIST, IconeView.CORACAO, IconeView.RELOGIO, IconeView.ESTRELA, IconeView.LISTA};
+
+    /** Uma linha do menu: icone e nome. O nome e o segundo filho (veja rotuloDoItem). */
+    private LinearLayout itemDoMenu(String rotulo, int tipoIcone, Runnable acao) {
+        LinearLayout linha = new LinearLayout(this);
+        linha.setGravity(Gravity.CENTER_VERTICAL);
+        linha.setPadding(dp(14), 0, dp(14), 0);
+        IconeView ic = new IconeView(this, tipoIcone);
+        ic.definir(tipoIcone, ICONE);
+        linha.addView(ic, new LinearLayout.LayoutParams(dp(22), dp(22)));
+        TextView t = texto(15, TEXTO, false);
         t.setText(rotulo);
-        t.setGravity(Gravity.CENTER_VERTICAL);
-        t.setPadding(dp(16), 0, dp(16), 0);
-        t.setBackground(toque(null, forma(0xFF000000, 12, 0)));
-        t.setOnClickListener(v -> {
+        t.setPadding(dp(16), 0, 0, 0);
+        linha.addView(t, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        linha.setBackground(toque(null, forma(0xFF000000, 12, 0)));
+        linha.setOnClickListener(v -> {
             fecharGaveta();
             acao.run();
         });
-        return t;
+        return linha;
     }
 
-    private void adicionarItem(LinearLayout pai, TextView item) {
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50));
-        p.setMargins(dp(10), dp(2), dp(10), dp(2));
+    private TextView rotuloDoItem(View item) {
+        return (TextView) ((LinearLayout) item).getChildAt(1);
+    }
+
+    private void adicionarItem(LinearLayout pai, View item) {
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46));
+        p.setMargins(dp(10), dp(1), dp(10), dp(1));
         pai.addView(item, p);
     }
 
-    private void adicionarLinha(LinearLayout pai) {
-        View linha = new View(this);
-        linha.setBackgroundColor(LINHA);
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1));
-        p.setMargins(dp(20), dp(8), dp(20), dp(8));
-        pai.addView(linha, p);
+    private void adicionarTitulo(LinearLayout pai, String rotulo) {
+        TextView t = texto(11, SUAVE, true);
+        t.setText(rotulo.toUpperCase(Locale.ROOT));
+        t.setLetterSpacing(0.1f);
+        t.setPadding(dp(26), dp(16), dp(20), dp(4));
+        pai.addView(t);
     }
 
     private View montarGaveta() {
@@ -2577,11 +2610,12 @@ public class MainActivity extends Activity {
 
         LinearLayout marca = new LinearLayout(this);
         marca.setGravity(Gravity.CENTER_VERTICAL);
-        marca.setPadding(dp(20), dp(28), dp(20), dp(20));
+        marca.setPadding(dp(20), dp(32), dp(20), dp(22));
+        marca.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[]{Cores.misturar(CARTAO, ACENTO, 0.28), CARTAO}));
         ImageView logo = new ImageView(this);
         logo.setImageResource(R.drawable.logo);
         logo.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        marca.addView(logo, new LinearLayout.LayoutParams(dp(52), dp(52)));
+        marca.addView(logo, new LinearLayout.LayoutParams(dp(56), dp(56)));
         TextView nome = texto(20, TEXTO, true);
         nome.setText("Raccoon Music");
         nome.setPadding(dp(14), 0, 0, 0);
@@ -2598,26 +2632,30 @@ public class MainActivity extends Activity {
         ScrollView rolagem = new ScrollView(this);
         LinearLayout itens = new LinearLayout(this);
         itens.setOrientation(LinearLayout.VERTICAL);
+        adicionarTitulo(itens, "Biblioteca");
         for (int i = 0; i < SECOES_NO_MENU; i++) {
             final int destino = i;
-            itensSecao[i] = itemDoMenu(NOMES_SECAO[i], () -> irPara(destino));
-            adicionarItem(itens, itensSecao[i]);
+            linhasSecao[i] = itemDoMenu(NOMES_SECAO[i], ICONES_SECAO[i], () -> irPara(destino));
+            adicionarItem(itens, linhasSecao[i]);
         }
-        adicionarLinha(itens);
-        adicionarItem(itens, itemDoMenu("Estatísticas", this::mostrarEstatisticas));
-        adicionarItem(itens, itemDoMenu("Exportar músicas", this::escolherOrigemDaExportacao));
-        adicionarItem(itens, itemDoMenu("Enviar ao PC", this::enviarAoPc));
-        adicionarItem(itens, itemDoMenu("Baixar música", this::baixarNoCelular));
-        adicionarItem(itens, itemDoMenu("Baixar no PC", this::baixarNoPc));
-        adicionarItem(itens, itemDoMenu("Ajustes", this::menuDeAjustes));
-        itemTemporizador = itemDoMenu("Temporizador", this::menuDoTemporizador);
-        adicionarItem(itens, itemTemporizador);
-        adicionarLinha(itens);
-        adicionarItem(itens, itemDoMenu("Atualizar a biblioteca", this::atualizarBiblioteca));
-        adicionarItem(itens, itemDoMenu("Escolher outra pasta", this::escolherPasta));
+        adicionarTitulo(itens, "Músicas");
+        adicionarItem(itens, itemDoMenu("Baixar música", IconeView.DOWNLOAD, this::baixarNoCelular));
+        adicionarItem(itens, itemDoMenu("Baixar no PC", IconeView.COMPUTADOR, this::baixarNoPc));
+        adicionarItem(itens, itemDoMenu("Enviar ao PC", IconeView.EXPORTAR, this::enviarAoPc));
+        adicionarItem(itens, itemDoMenu("Exportar músicas", IconeView.PASTA, this::escolherOrigemDaExportacao));
+        adicionarTitulo(itens, "Ferramentas");
+        adicionarItem(itens, itemDoMenu("Estatísticas", IconeView.ESTATISTICA, this::mostrarEstatisticas));
+        LinearLayout linhaTemporizador = itemDoMenu("Temporizador", IconeView.RELOGIO, this::menuDoTemporizador);
+        itemTemporizador = rotuloDoItem(linhaTemporizador);
+        adicionarItem(itens, linhaTemporizador);
+        adicionarTitulo(itens, "Aplicativo");
+        adicionarItem(itens, itemDoMenu("Ajustes", IconeView.AJUSTES, this::menuDeAjustes));
+        adicionarItem(itens, itemDoMenu("Atualizar a biblioteca", IconeView.ATUALIZAR, this::atualizarBiblioteca));
+        adicionarItem(itens, itemDoMenu("Escolher outra pasta", IconeView.PASTA, this::escolherPasta));
         if (Atualizador.disponivel()) {
-            itemVersao = itemDoMenu("Procurar atualização", () -> procurarAtualizacao(true));
-            adicionarItem(itens, itemVersao);
+            LinearLayout linhaVersao = itemDoMenu("Procurar atualização", IconeView.DOWNLOAD, () -> procurarAtualizacao(true));
+            itemVersao = rotuloDoItem(linhaVersao);
+            adicionarItem(itens, linhaVersao);
         }
         rolagem.addView(itens);
         g.addView(rolagem, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
@@ -2630,12 +2668,14 @@ public class MainActivity extends Activity {
     }
 
     private void marcarSecao() {
-        for (int i = 0; i < itensSecao.length; i++) {
-            if (itensSecao[i] == null) continue;
+        for (int i = 0; i < linhasSecao.length; i++) {
+            if (linhasSecao[i] == null) continue;
             boolean atual = i == (secao == SECAO_COLECAO ? secaoAnterior : secao);
-            itensSecao[i].setTextColor(atual ? ACENTO : TEXTO);
-            itensSecao[i].setTypeface(null, atual ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
-            itensSecao[i].setBackground(toque(atual ? forma(LINHA, 12, 0) : null, forma(0xFF000000, 12, 0)));
+            TextView rotulo = rotuloDoItem(linhasSecao[i]);
+            rotulo.setTextColor(atual ? ACENTO : TEXTO);
+            rotulo.setTypeface(null, atual ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+            ((IconeView) ((LinearLayout) linhasSecao[i]).getChildAt(0)).definir(ICONES_SECAO[i], atual ? ACENTO : ICONE);
+            linhasSecao[i].setBackground(toque(atual ? forma(LINHA, 12, 0) : null, forma(0xFF000000, 12, 0)));
         }
     }
 

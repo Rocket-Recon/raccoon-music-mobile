@@ -177,10 +177,12 @@ public final class Baixador {
                         if (!artista.isEmpty()) tags += " -metadata artist=\"" + aspas(Limpeza.formatarArtista(artista)) + "\"";
                         pedido.addOption("--postprocessor-args", "ffmpeg:" + tags);
                     }
+                    // a imagem fica também numa pasta à parte: se não entrar no arquivo, o app guarda a capa por conta própria
+                    pedido.addOption("--write-thumbnail");
+                    pedido.addOption("--convert-thumbnails", "jpg");
                     if (tentativa == 0) {
-                        // capa quadrada no arquivo, como no PC; se falhar, tenta de novo sem capa
+                        // capa quadrada no arquivo, como no PC; se falhar, tenta de novo sem embutir
                         pedido.addOption("--embed-thumbnail");
-                        pedido.addOption("--convert-thumbnails", "jpg");
                         pedido.addOption("--ppa", "ThumbnailsConvertor+ffmpeg_o:-vf crop='min(iw,ih)':'min(iw,ih)'");
                     }
                     pedido.addOption("--windows-filenames");
@@ -202,29 +204,66 @@ public final class Baixador {
                 return new Resultado(false, "Não consegui baixar essa música.");
             }
             String arquivo = pronto.getName();
-            if (!copiar(contexto.getContentResolver(), pronto, Uri.parse(arvore), Pedido.mime(formato))) {
+            byte[] imagem = imagemBaixada(temporaria);
+            Uri novo = copiar(contexto.getContentResolver(), pronto, Uri.parse(arvore), Pedido.mime(formato));
+            if (novo == null) {
                 return new Resultado(false, "Baixei, mas não consegui salvar na pasta de músicas.");
             }
+            complementar(contexto, novo.toString(), arquivo, imagem);
             return new Resultado(true, arquivo.substring(0, arquivo.length() - formato.length() - 1));
         } finally {
             limpar(temporaria);
         }
     }
 
-    private static boolean copiar(ContentResolver cr, File arquivo, Uri arvore, String mime) {
+    /** A imagem de capa que o yt-dlp deixou ao lado do áudio (null quando não há). */
+    private static byte[] imagemBaixada(File pasta) {
+        File[] itens = pasta.listFiles();
+        if (itens == null) return null;
+        File melhor = null;
+        for (File f : itens) {
+            String n = f.getName().toLowerCase(java.util.Locale.ROOT);
+            if ((n.endsWith(".jpg") || n.endsWith(".jpeg") || n.endsWith(".png") || n.endsWith(".webp")) && (melhor == null || f.length() > melhor.length())) melhor = f;
+        }
+        if (melhor == null) return null;
+        try (InputStream in = new java.io.FileInputStream(melhor); java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream()) {
+            byte[] bloco = new byte[65536];
+            int n;
+            while ((n = in.read(bloco)) > 0) out.write(bloco, 0, n);
+            return out.toByteArray();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** Depois de salvar: guarda a capa e já busca a letra, para a música nova aparecer completa. Nada aqui invalida o download. */
+    private static void complementar(Context contexto, String uri, String arquivo, byte[] imagem) {
+        try {
+            Capas.guardar(contexto, uri, imagem);
+        } catch (Throwable e) {
+            // sem capa guardada: o app tenta ler a do arquivo
+        }
+        try {
+            Letras.buscar(contexto, new Faixa(uri, arquivo));
+        } catch (Throwable e) {
+            // sem letra agora: o player busca quando for aberta
+        }
+    }
+
+    private static Uri copiar(ContentResolver cr, File arquivo, Uri arvore, String mime) {
         try {
             Uri pai = DocumentsContract.buildDocumentUriUsingTree(arvore, DocumentsContract.getTreeDocumentId(arvore));
             Uri novo = DocumentsContract.createDocument(cr, pai, mime, arquivo.getName());
-            if (novo == null) return false;
+            if (novo == null) return null;
             try (InputStream in = new java.io.FileInputStream(arquivo); OutputStream out = cr.openOutputStream(novo)) {
-                if (out == null) return false;
+                if (out == null) return null;
                 byte[] bloco = new byte[65536];
                 int n;
                 while ((n = in.read(bloco)) > 0) out.write(bloco, 0, n);
             }
-            return true;
+            return novo;
         } catch (Exception e) {
-            return false;
+            return null;
         }
     }
 

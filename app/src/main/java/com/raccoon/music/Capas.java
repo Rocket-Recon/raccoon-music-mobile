@@ -39,8 +39,36 @@ public final class Capas {
         pasta.mkdirs();
     }
 
-    private String nomeDoArquivo(String uri) {
+    private static String nomeDoArquivo(String uri) {
         return Integer.toHexString(uri.hashCode()) + "_" + uri.length();
+    }
+
+    private static final int LADO_GUARDADO = 256;
+
+    /** Guarda a capa de uma música recém-baixada (recortada em quadrado) para as listas e o player acharem sem depender da imagem dentro do arquivo. */
+    public static boolean guardar(Context contexto, String uri, byte[] imagem) {
+        if (imagem == null || imagem.length == 0) return false;
+        try {
+            BitmapFactory.Options o = new BitmapFactory.Options();
+            o.inJustDecodeBounds = true;
+            BitmapFactory.decodeByteArray(imagem, 0, imagem.length, o);
+            int menor = Math.max(1, Math.min(o.outWidth, o.outHeight));
+            o.inSampleSize = Math.max(1, menor / (LADO_GUARDADO * 2));
+            o.inJustDecodeBounds = false;
+            Bitmap original = BitmapFactory.decodeByteArray(imagem, 0, imagem.length, o);
+            if (original == null) return false;
+            int lado = Math.min(original.getWidth(), original.getHeight());
+            Bitmap quadrada = Bitmap.createBitmap(original, (original.getWidth() - lado) / 2, (original.getHeight() - lado) / 2, lado, lado);
+            Bitmap pronta = Bitmap.createScaledBitmap(quadrada, LADO_GUARDADO, LADO_GUARDADO, true);
+            File pasta = new File(contexto.getApplicationContext().getCacheDir(), "capas");
+            pasta.mkdirs();
+            new File(pasta, nomeDoArquivo(uri) + ".nao").delete();
+            try (FileOutputStream out = new FileOutputStream(new File(pasta, nomeDoArquivo(uri) + ".jpg"))) {
+                return pronta.compress(Bitmap.CompressFormat.JPEG, 90, out);
+            }
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     /** Ja esta na memoria? (devolve na hora, sem esperar) */

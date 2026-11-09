@@ -78,6 +78,13 @@ public final class Lrc {
         return r;
     }
 
+    /** O ajuste de sincronia em texto: "Padrão" sem ajuste; "+0,25 s" quando a letra aparece mais cedo; "−0,25 s" mais tarde. */
+    public static String rotuloDoAjuste(long ms) {
+        if (ms == 0) return "Padrão";
+        String valor = String.format(java.util.Locale.US, "%.2f", Math.abs(ms) / 1000.0).replace('.', ',');
+        return (ms > 0 ? "+" : "\u2212") + valor + " s";
+    }
+
     /** A letra sem os tempos, para quem so quer ler. */
     public static String semTempos(String texto) {
         return texto.replaceAll("(?m)^(\\[[^\\]]*\\])+[ \\t]*", "").trim();
