@@ -2609,7 +2609,7 @@ public class MainActivity extends Activity {
         adicionarItem(itens, itemDoMenu("Enviar ao PC", this::enviarAoPc));
         adicionarItem(itens, itemDoMenu("Baixar música", this::baixarNoCelular));
         adicionarItem(itens, itemDoMenu("Baixar no PC", this::baixarNoPc));
-        adicionarItem(itens, itemDoMenu("Aparência", this::escolherCores));
+        adicionarItem(itens, itemDoMenu("Ajustes", this::menuDeAjustes));
         itemTemporizador = itemDoMenu("Temporizador", this::menuDoTemporizador);
         adicionarItem(itens, itemTemporizador);
         adicionarLinha(itens);
@@ -2731,12 +2731,29 @@ public class MainActivity extends Activity {
                     pedidoPendente = "";
                     iniciarDownload(campo.getText().toString().trim());
                 })
-                .setNeutralButton("Ajustes", (d, q) -> {
-                    pedidoPendente = campo.getText().toString();
-                    ajustesDoDownload();
-                })
                 .setNegativeButton("Cancelar", (d, q) -> pedidoPendente = "")
                 .show();
+    }
+
+    /** Categorias de ajustes, como no app do PC. */
+    private void menuDeAjustes() {
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setPadding(dp(22), dp(8), dp(22), 0);
+        final AlertDialog[] aberto = new AlertDialog[1];
+        String[] nomes = {"Aparência", "Download"};
+        Runnable[] acoes = {this::escolherCores, this::ajustesDoDownload};
+        for (int i = 0; i < nomes.length; i++) {
+            final Runnable acao = acoes[i];
+            TextView linha = linhaDeAjuste();
+            linha.setText(nomes[i]);
+            linha.setOnClickListener(v -> {
+                aberto[0].dismiss();
+                acao.run();
+            });
+            col.addView(linha);
+        }
+        aberto[0] = new Construtor().setTitle("Ajustes").setView(col).setNegativeButton("Fechar", null).show();
     }
 
     /** Formato, taxa de bits e se pergunta o nome do arquivo antes de baixar (como nos ajustes do PC). */
@@ -2781,9 +2798,9 @@ public class MainActivity extends Activity {
         col.addView(perguntar);
         col.addView(atualizarBaixador);
         new Construtor()
-                .setTitle("Ajustes do download")
+                .setTitle("Download")
                 .setView(col)
-                .setPositiveButton("Pronto", (d, q) -> baixarNoCelular())
+                .setPositiveButton("Pronto", (d, q) -> menuDeAjustes())
                 .show();
     }
 

@@ -111,22 +111,42 @@ public final class Baixador {
         }
     }
 
-    /** Titulo do video para sugerir o nome do arquivo; "" se nao deu. Chamar fora da thread da tela. */
-    public static String titulo(Context contexto, String texto) {
-        String entrada = Pedido.entrada(texto);
-        if (entrada.isEmpty() || !iniciar(contexto)) return "";
+    private static final String SEP = "|||";
+
+    /** Dados do video {artista, faixa, canal, titulo}; vazios se nao deu. Chamar fora da thread da tela. */
+    private static String[] dados(Context contexto, String entrada) {
         try {
             YoutubeDLRequest pedido = new YoutubeDLRequest(entrada);
             pedido.addOption("--no-playlist");
             pedido.addOption("--skip-download");
-            pedido.addOption("--print", "%(title)s");
-            return Pedido.nomeDoArquivo(Pedido.ultimaLinha(executar(contexto, pedido)));
+            pedido.addOption("--print", "%(artist)s" + SEP + "%(track)s" + SEP + "%(uploader)s" + SEP + "%(title)s");
+            String linha = Pedido.ultimaLinha(executar(contexto, pedido));
+            String[] p = linha.split(java.util.regex.Pattern.quote(SEP), -1);
+            if (p.length == 4) return p;
         } catch (Exception e) {
-            return "";
+            // segue sem os dados
         }
+        return new String[] {"", "", "", ""};
     }
 
-    /** Bloqueia ate terminar: chamar fora da thread da tela. `nome` vazio usa o titulo do video. */
+    private static String artistaDe(String[] d) {
+        String a = Limpeza.artistaDoCanal(d[0]);
+        return a.isEmpty() ? Limpeza.artistaDoCanal(d[2]) : a;
+    }
+
+    /** Nome sugerido no padrao do PC ("Artista - Titulo", sem lixo); "" se nao deu. Chamar fora da thread da tela. */
+    public static String titulo(Context contexto, String texto) {
+        String entrada = Pedido.entrada(texto);
+        if (entrada.isEmpty() || !iniciar(contexto)) return "";
+        String[] d = dados(contexto, entrada);
+        return Limpeza.nomeSugerido(artistaDe(d), d[1], d[3]);
+    }
+
+    private static String aspas(String t) {
+        return t.replace("\"", "").replace("\\", "");
+    }
+
+    /** Bloqueia ate terminar: chamar fora da thread da tela. `nome` vazio usa o nome limpo no padrao do PC. */
     public static Resultado baixar(Context contexto, String texto, String arvore, String nome, String formato, int taxa) {
         String entrada = Pedido.entrada(texto);
         if (entrada.isEmpty()) return new Resultado(false, "Escreva um link ou o nome da música.");
@@ -135,31 +155,57 @@ public final class Baixador {
         limpar(temporaria);
         if (!temporaria.mkdirs() && !temporaria.isDirectory()) return new Resultado(false, "Sem espaço para baixar.");
         try {
-            YoutubeDLRequest pedido = new YoutubeDLRequest(entrada);
-            pedido.addOption("--no-playlist");
-            pedido.addOption("-x");
-            pedido.addOption("--audio-format", formato);
-            pedido.addOption("--audio-quality", taxa + "K");
-            pedido.addOption("--embed-metadata");
-            pedido.addOption("--windows-filenames");
-            pedido.addOption("--trim-filenames", String.valueOf(Pedido.MAX_NOME));
-            pedido.addOption("-o", Pedido.modelo(temporaria.getAbsolutePath(), nome));
-            executar(contexto, pedido);
+            String[] d = dados(contexto, entrada);
+            String artista = artistaDe(d);
+            String faixa = d[1].equals("NA") ? "" : d[1];
+            String limpo = Limpeza.formatarTitulo(Limpeza.limparLixo(faixa.isEmpty() ? d[3] : faixa));
+            String nomeFinal = nome == null || nome.trim().isEmpty() ? Limpeza.nomeSugerido(artista, d[1], d[3]) : nome;
             File pronto = null;
-            File[] arquivos = temporaria.listFiles();
-            if (arquivos != null) {
-                for (File f : arquivos) {
-                    if (f.getName().toLowerCase().endsWith("." + formato) && (pronto == null || f.length() > pronto.length())) pronto = f;
+            Exception erro = null;
+            for (int tentativa = 0; tentativa < 2 && pronto == null; tentativa++) {
+                limpar(temporaria);
+                temporaria.mkdirs();
+                try {
+                    YoutubeDLRequest pedido = new YoutubeDLRequest(entrada);
+                    pedido.addOption("--no-playlist");
+                    pedido.addOption("-x");
+                    pedido.addOption("--audio-format", formato);
+                    pedido.addOption("--audio-quality", taxa + "K");
+                    pedido.addOption("--embed-metadata");
+                    if (!limpo.isEmpty()) {
+                        String tags = "-metadata title=\"" + aspas(limpo) + "\"";
+                        if (!artista.isEmpty()) tags += " -metadata artist=\"" + aspas(Limpeza.formatarArtista(artista)) + "\"";
+                        pedido.addOption("--postprocessor-args", "ffmpeg:" + tags);
+                    }
+                    if (tentativa == 0) {
+                        // capa quadrada no arquivo, como no PC; se falhar, tenta de novo sem capa
+                        pedido.addOption("--embed-thumbnail");
+                        pedido.addOption("--convert-thumbnails", "jpg");
+                        pedido.addOption("--ppa", "ThumbnailsConvertor+ffmpeg_o:-vf crop='min(iw,ih)':'min(iw,ih)'");
+                    }
+                    pedido.addOption("--windows-filenames");
+                    pedido.addOption("--trim-filenames", String.valueOf(Pedido.MAX_NOME));
+                    pedido.addOption("-o", Pedido.modelo(temporaria.getAbsolutePath(), nomeFinal));
+                    executar(contexto, pedido);
+                } catch (Exception e) {
+                    erro = e;
+                }
+                File[] arquivos = temporaria.listFiles();
+                if (arquivos != null) {
+                    for (File f : arquivos) {
+                        if (f.getName().toLowerCase().endsWith("." + formato) && (pronto == null || f.length() > pronto.length())) pronto = f;
+                    }
                 }
             }
-            if (pronto == null) return new Resultado(false, "Não consegui baixar essa música.");
+            if (pronto == null) {
+                if (erro != null) return new Resultado(false, "Não consegui baixar: " + Pedido.resumoDoErro(erro.getMessage()));
+                return new Resultado(false, "Não consegui baixar essa música.");
+            }
             String arquivo = pronto.getName();
             if (!copiar(contexto.getContentResolver(), pronto, Uri.parse(arvore), Pedido.mime(formato))) {
                 return new Resultado(false, "Baixei, mas não consegui salvar na pasta de músicas.");
             }
             return new Resultado(true, arquivo.substring(0, arquivo.length() - formato.length() - 1));
-        } catch (Exception e) {
-            return new Resultado(false, "Não consegui baixar: " + Pedido.resumoDoErro(e.getMessage()));
         } finally {
             limpar(temporaria);
         }
