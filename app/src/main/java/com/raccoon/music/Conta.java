@@ -13,7 +13,6 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
-import java.util.Date;
 import java.util.Locale;
 
 /** A conta do Raccoon Music (a mesma do app do PC, no Supabase): entrar por usuário ou e-mail, manter a sessão e consultar a licença. Chamar a rede fora da thread da tela. */
@@ -160,31 +159,88 @@ public final class Conta {
         }
     }
 
-    /** Situação da licença da conta ("Premium", "Premium até 31/12/2026" ou "Plano gratuito"); null sem conta ou sem internet. */
-    public static String plano(Context c) {
-        String t = token(c);
-        if (t == null) return null;
+    private static final long DIA_MS = 24L * 60L * 60L * 1000L;
+    private static final int DIAS_SEM_INTERNET = 3;
+
+    /** O app está liberado: conta aberta e licença confirmada dentro do prazo sem internet (ou até o fim da licença). */
+    public static boolean liberado(Context c) {
+        return logado(c) && prefs(c).getLong("valida_ate", 0L) > System.currentTimeMillis();
+    }
+
+    /** Última descrição do plano confirmada ("Premium vitalício", "Premium até 31/12/2026", "Modo grátis"). */
+    public static String planoGuardado(Context c) {
+        return prefs(c).getString("plano", "");
+    }
+
+    private static long fimDoDia(String data) {
         try {
-            String base = URL_BASE + "/rest/v1/licencas?select=tipo,expira_em&status=eq.ativo";
-            Resposta r = http("GET", base + "&app=in.(global,music_desktop,music_mobile)", t, null);
-            if (r.status == 400) r = http("GET", base, t, null);
-            if (r.status == 0 || r.status >= 400) return null;
+            SimpleDateFormat f = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.ROOT);
+            f.setTimeZone(java.util.TimeZone.getTimeZone("UTC"));
+            return f.parse(data.substring(0, 19)).getTime();
+        } catch (Exception e) {
+            try {
+                SimpleDateFormat f = new SimpleDateFormat("yyyy-MM-dd", Locale.ROOT);
+                f.setTimeZone(java.util.TimeZone.getTimeZone("UTC"));
+                return f.parse(data.substring(0, 10)).getTime() + DIA_MS;
+            } catch (Exception ruim) {
+                return 0L;
+            }
+        }
+    }
+
+    private static Resposta licencas(String token) {
+        String[] campos = {"tipo,expira_em,dias_offline", "tipo,expira_em"};
+        String[] apps = {"&app=in.(global,music_desktop,music_mobile)", ""};
+        Resposta r = new Resposta();
+        for (String app : apps) {
+            for (String campo : campos) {
+                r = http("GET", URL_BASE + "/rest/v1/licencas?select=" + campo + "&status=eq.ativo" + app, token, null);
+                if (r.status != 400) return r;  // 400 = coluna que ainda não existe no banco: tenta sem ela
+            }
+        }
+        return r;
+    }
+
+    /**
+     * Confere a licença da conta no servidor: "ok" (licença ativa), "sem_licenca" (conta sem licença ativa),
+     * "sem_resposta" (sem internet ou servidor fora) ou "sem_conta". Guarda o plano e até quando o app fica liberado sem internet.
+     */
+    public static String verificar(Context c) {
+        if (!logado(c)) return "sem_conta";
+        String t = token(c);
+        if (t == null) return logado(c) ? "sem_resposta" : "sem_conta";
+        try {
+            Resposta r = licencas(t);
+            if (r.status == 0 || r.status >= 400) return "sem_resposta";
             JSONArray lista = new JSONArray(r.corpo);
-            String hoje = new SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).format(new Date());
-            String melhor = "";
+            long agora = System.currentTimeMillis();
+            String plano = "";
+            long valida = 0L;
+            long melhorFim = -1L;
             for (int i = 0; i < lista.length(); i++) {
                 JSONObject l = lista.getJSONObject(i);
                 String tipo = l.optString("tipo", "");
+                if (!"premium_vitalicio".equals(tipo) && !"premium_periodico".equals(tipo)) continue;
                 String expira = l.isNull("expira_em") ? "" : l.optString("expira_em", "");
-                if ("premium_vitalicio".equals(tipo) && expira.isEmpty()) return "Premium";
-                if (("premium_periodico".equals(tipo) || "premium_vitalicio".equals(tipo)) && expira.length() >= 10 && expira.substring(0, 10).compareTo(hoje) >= 0) {
-                    String d = expira.substring(8, 10) + "/" + expira.substring(5, 7) + "/" + expira.substring(0, 4);
-                    if (melhor.isEmpty()) melhor = "Premium até " + d;
+                long fim = expira.length() >= 10 ? fimDoDia(expira) : Long.MAX_VALUE;
+                if (fim <= agora) continue;  // vencida
+                int dias = l.optInt("dias_offline", 0);
+                long sem = (dias >= 1 && dias <= 30 ? dias : DIAS_SEM_INTERNET) * DIA_MS;
+                if (fim > melhorFim) {
+                    melhorFim = fim;
+                    valida = Math.min(agora + sem, fim);
+                    if (expira.length() < 10) plano = "premium_vitalicio".equals(tipo) ? "Premium vitalício" : "Premium";
+                    else plano = "Premium até " + expira.substring(8, 10) + "/" + expira.substring(5, 7) + "/" + expira.substring(0, 4);
                 }
             }
-            return melhor.isEmpty() ? "Plano gratuito" : melhor;
+            if (valida > 0L) {
+                prefs(c).edit().putString("plano", plano).putLong("valida_ate", valida).apply();
+                return "ok";
+            }
+            prefs(c).edit().putString("plano", "Modo grátis").putLong("valida_ate", 0L).apply();
+            return "sem_licenca";
         } catch (Exception e) {
-            return null;
+            return "sem_resposta";
         }
     }
 }

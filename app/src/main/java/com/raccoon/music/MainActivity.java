@@ -91,8 +91,15 @@ public class MainActivity extends Activity {
     private int secao = SECAO_INICIO;
     private int secaoAnterior = SECAO_INICIO;
     private String planoConta = "";
+    private String estadoLicenca = "";
+    private long ultimaVerificacao;
+    private View telaBloqueio;
+    private LinearLayout blocoEntrada, blocoSemLicenca;
+    private EditText bloqueioUsuario, bloqueioSenha;
+    private TextView lblBloqueio;
     private TextView lblConta, itemConta;
     private ScrollView inicio;
+    private LinearLayout cartaoBaixar;
     private LinearLayout conteudoInicio;
     private FrameLayout caixaDaBusca;
     private String colecaoTitulo = "";
@@ -144,7 +151,8 @@ public class MainActivity extends Activity {
     private ImageView capaMini;
     private IconeView notaMini, notaGrande, icPlayMini, icProximaMini, icMenu, icLetra;
     private FrameLayout celulaMais, celulaAleatorio;
-    private TextView btnVazio, bOrdem, lblGaveta;
+    private TextView btnVazio, bOrdem, bFiltro, lblGaveta;
+    private int filtroMusicas = 0;  // 0 todas, 1 curtidas, 2 nunca tocadas, 3 já tocadas
     private FrameLayout limparBusca;
     private View telaTocando;
     private LetraView letraView;
@@ -259,6 +267,7 @@ public class MainActivity extends Activity {
     protected void onStart() {
         super.onStart();
         ui.post(relogio);
+        if (Conta.logado(this) && System.currentTimeMillis() - ultimaVerificacao > 10 * 60 * 1000L) atualizarConta();
     }
 
     @Override
@@ -270,6 +279,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        PlaybackService.aoAlternarAleatorio = null;
         try {
             unregisterReceiver(aoBaixar);
         } catch (Exception jaSolto) {
@@ -429,6 +439,15 @@ public class MainActivity extends Activity {
         } else {
             grupos = new ArrayList<>();
             visiveis = Catalogo.filtrar(faixasBase(), texto, curtidas, secao == SECAO_CURTIDAS);
+            if (secao == SECAO_MUSICAS && filtroMusicas != 0) {
+                List<Faixa> passam = new ArrayList<>();
+                for (Faixa f : visiveis) {
+                    boolean curtida = curtidas.contains(f.chave);
+                    int vezes = historico.vezes(f.chave);
+                    if ((filtroMusicas == 1 && curtida) || (filtroMusicas == 2 && vezes == 0) || (filtroMusicas == 3 && vezes > 0)) passam.add(f);
+                }
+                visiveis = passam;
+            }
             if ((secao == SECAO_MUSICAS || secao == SECAO_CURTIDAS) && prefs.ordem() != 0) {
                 visiveis = Catalogo.ordenarPor(visiveis, prefs.ordem(), f -> etiquetas.duracao(f.uri));
             }
@@ -446,6 +465,7 @@ public class MainActivity extends Activity {
         }
         atualizarContagem();
         atualizarVazio();
+        rotularBarra();
     }
 
     private static String plural(int n, String um, String varios) {
@@ -559,6 +579,14 @@ public class MainActivity extends Activity {
     private void ligarPlayer() {
         player.setShuffleModeEnabled(false);  // o sorteio e feito aqui (assim "tocar a seguir" fica de fato a seguir)
         player.setRepeatMode(prefs.repetir());
+        PlaybackService.aoAlternarAleatorio = this::alternarAleatorio;
+        player.addListener(new Player.Listener() {
+            @Override
+            public void onRepeatModeChanged(int modo) {
+                prefs.repetir(modo);
+                atualizarIcones();
+            }
+        });
         player.addListener(new Player.Listener() {
             @Override
             public void onPlayerError(PlaybackException erro) {
@@ -627,6 +655,31 @@ public class MainActivity extends Activity {
         } else {
             tocarFila(new ArrayList<>(visiveis), pos);
         }
+    }
+
+    private static final String[] ORDENS_CURTAS = {"banda", "título", "duração", "recentes"};
+    private static final String[] NOMES_FILTRO = {"Todas", "Curtidas", "Nunca tocadas", "Já tocadas"};
+
+    /** Escreve nos dois botões da barra a ordem e o filtro de agora. */
+    private void rotularBarra() {
+        if (bOrdem != null) bOrdem.setText("Ordem: " + ORDENS_CURTAS[Math.max(0, Math.min(prefs.ordem(), ORDENS_CURTAS.length - 1))]);
+        if (bFiltro != null) {
+            bFiltro.setText(filtroMusicas == 0 ? "Filtrar" : NOMES_FILTRO[filtroMusicas]);
+            bFiltro.setBackground(toque(forma(filtroMusicas == 0 ? CARTAO : ACENTO, 24, TEXTO), forma(0xFF000000, 24, 0)));
+            bFiltro.setTextColor(filtroMusicas == 0 ? TEXTO : 0xFFFFFFFF);
+        }
+    }
+
+    private void menuFiltrar() {
+        new Construtor()
+                .setTitle("Mostrar")
+                .setSingleChoiceItems(NOMES_FILTRO, filtroMusicas, (d, qual) -> {
+                    filtroMusicas = qual;
+                    d.dismiss();
+                    aplicarFiltro();
+                    if (lista != null) lista.setSelection(0);
+                })
+                .show();
     }
 
     private void menuOrdenar() {
@@ -787,6 +840,7 @@ public class MainActivity extends Activity {
         icAleatorio.definir(IconeView.ALEATORIO, prefs.embaralhar() ? ACENTO : ICONE);
         int r = prefs.repetir();
         icRepetir.definir(r == Player.REPEAT_MODE_ONE ? IconeView.REPETIR_UM : IconeView.REPETIR, r == Player.REPEAT_MODE_OFF ? ICONE : ACENTO);
+        PlaybackService.atualizarBotoes();
     }
 
     private void atualizarPlayer() {
@@ -1875,7 +1929,7 @@ public class MainActivity extends Activity {
         if (secao == SECAO_COLECAO) irPara(secaoAnterior); else abrirGaveta();
     }
 
-    /** Mostra a conta no cabeçalho do menu e na página inicial. */
+    /** Mostra a conta no cabeçalho do menu e na página inicial, e a tela de bloqueio quando falta licença. */
     private void aplicarConta() {
         boolean logado = Conta.logado(this);
         if (lblConta != null) {
@@ -1886,21 +1940,156 @@ public class MainActivity extends Activity {
             atualizarCabecalho();
             atualizarContagem();
         }
+        aplicarBloqueio();
     }
 
-    /** Consulta a licença da conta em segundo plano e atualiza o plano mostrado. */
+    /** Confere a licença da conta em segundo plano. Sem licença, o app fica bloqueado (como no PC). */
     private void atualizarConta() {
         if (!Conta.logado(this)) {
             planoConta = "";
+            estadoLicenca = "sem_conta";
+            aplicarBloqueio();
             return;
         }
+        ultimaVerificacao = System.currentTimeMillis();
         new Thread(() -> {
-            final String plano = Conta.plano(this);
+            final String estado = Conta.verificar(this);
             ui.post(() -> {
                 if (isDestroyed()) return;
-                planoConta = Conta.logado(this) && plano != null ? plano : planoConta;
-                if (!Conta.logado(this)) planoConta = "";
+                estadoLicenca = estado;
+                planoConta = Conta.logado(this) ? Conta.planoGuardado(this) : "";
+                if ("sem_resposta".equals(estado)) ultimaVerificacao = 0L;  // tenta de novo na próxima abertura
                 aplicarConta();
+            });
+        }).start();
+    }
+
+    private void aplicarBloqueio() {
+        if (telaBloqueio == null) return;
+        boolean liberado = Conta.liberado(this);
+        telaBloqueio.setVisibility(liberado ? View.GONE : View.VISIBLE);
+        if (liberado) return;
+        if (player != null && player.isConnected() && player.isPlaying()) player.pause();
+        boolean logado = Conta.logado(this);
+        blocoEntrada.setVisibility(logado ? View.GONE : View.VISIBLE);
+        blocoSemLicenca.setVisibility(logado ? View.VISIBLE : View.GONE);
+        if (!logado) {
+            lblBloqueio.setText("Entre com a sua conta do Raccoon Music para usar o app.");
+        } else if ("sem_licenca".equals(estadoLicenca)) {
+            lblBloqueio.setText("Olá, " + Conta.usuario(this) + ". Esta conta não tem uma licença ativa. Ative a licença no Raccoon Music do PC ou peça uma chave.");
+        } else if (estadoLicenca.isEmpty()) {
+            lblBloqueio.setText("Olá, " + Conta.usuario(this) + ". Confirmando a licença…");
+        } else {
+            lblBloqueio.setText("Olá, " + Conta.usuario(this) + ". Não consegui confirmar a licença. Conecte-se à internet e tente de novo.");
+        }
+    }
+
+    /** Tela que cobre o app inteiro enquanto não houver conta com licença ativa. */
+    private View montarBloqueio() {
+        ScrollView rolagem = new ScrollView(this);
+        rolagem.setBackgroundColor(FUNDO);
+        rolagem.setClickable(true);  // nada passa para o app de trás
+        rolagem.setFillViewport(true);
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setGravity(Gravity.CENTER_HORIZONTAL);
+        col.setPadding(dp(28), dp(56), dp(28), dp(28));
+        ImageView logo = new ImageView(this);
+        logo.setImageResource(R.drawable.logo);
+        logo.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        col.addView(logo, new LinearLayout.LayoutParams(dp(96), dp(96)));
+        TextView nome = texto(26, TEXTO, true);
+        nome.setText("Raccoon Music");
+        nome.setGravity(Gravity.CENTER);
+        nome.setPadding(0, dp(14), 0, dp(6));
+        col.addView(nome);
+        lblBloqueio = texto(14, SUAVE, false);
+        lblBloqueio.setSingleLine(false);
+        lblBloqueio.setGravity(Gravity.CENTER);
+        lblBloqueio.setPadding(0, 0, 0, dp(22));
+        col.addView(lblBloqueio, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        blocoEntrada = new LinearLayout(this);
+        blocoEntrada.setOrientation(LinearLayout.VERTICAL);
+        bloqueioUsuario = campoDaConta("Usuário ou e-mail", false);
+        bloqueioSenha = campoDaConta("Senha", true);
+        blocoEntrada.addView(bloqueioUsuario, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)));
+        LinearLayout.LayoutParams ps = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50));
+        ps.setMargins(0, dp(10), 0, 0);
+        blocoEntrada.addView(bloqueioSenha, ps);
+        TextView entrar = botao("Entrar", true, this::entrarPelaTelaDeBloqueio);
+        entrar.setTextColor(0xFFFFFFFF);
+        LinearLayout.LayoutParams pe = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50));
+        pe.setMargins(0, dp(16), 0, 0);
+        blocoEntrada.addView(entrar, pe);
+        TextView dica = texto(12, SUAVE, false);
+        dica.setSingleLine(false);
+        dica.setGravity(Gravity.CENTER);
+        dica.setText("É a mesma conta do Raccoon Music no PC. Para criar a conta ou recuperar a senha, use o app do PC.");
+        dica.setPadding(0, dp(14), 0, 0);
+        blocoEntrada.addView(dica);
+        col.addView(blocoEntrada, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        blocoSemLicenca = new LinearLayout(this);
+        blocoSemLicenca.setOrientation(LinearLayout.VERTICAL);
+        TextView verificar = botao("Verificar de novo", true, () -> {
+            Toast.makeText(this, "Verificando…", Toast.LENGTH_SHORT).show();
+            atualizarConta();
+        });
+        verificar.setTextColor(0xFFFFFFFF);
+        blocoSemLicenca.addView(verificar, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)));
+        TextView sair = botao("Sair da conta", false, () -> {
+            Conta.sair(this);
+            planoConta = "";
+            estadoLicenca = "sem_conta";
+            aplicarConta();
+        });
+        LinearLayout.LayoutParams pq = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50));
+        pq.setMargins(0, dp(10), 0, 0);
+        blocoSemLicenca.addView(sair, pq);
+        col.addView(blocoSemLicenca, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        rolagem.addView(col, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        return rolagem;
+    }
+
+    private EditText campoDaConta(String dica, boolean senha) {
+        EditText c = new EditText(this);
+        c.setHint(dica);
+        c.setHintTextColor(SUAVE);
+        c.setTextColor(TEXTO);
+        c.setSingleLine(true);
+        c.setBackground(forma(CARTAO, 14, LINHA));
+        c.setPadding(dp(16), 0, dp(16), 0);
+        c.setInputType(senha ? InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD
+                : InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);
+        if (senha) {
+            c.setImeOptions(EditorInfo.IME_ACTION_GO);
+            c.setOnEditorActionListener((v, acao, ev) -> {
+                entrarPelaTelaDeBloqueio();
+                return true;
+            });
+        }
+        return c;
+    }
+
+    private void entrarPelaTelaDeBloqueio() {
+        final String login = bloqueioUsuario.getText().toString();
+        final String chave = bloqueioSenha.getText().toString();
+        InputMethodManager imm = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+        if (imm != null) imm.hideSoftInputFromWindow(bloqueioSenha.getWindowToken(), 0);
+        Toast.makeText(this, "Entrando…", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            final String erro = Conta.entrar(this, login, chave);
+            ui.post(() -> {
+                if (isDestroyed()) return;
+                if (erro != null) {
+                    Toast.makeText(this, erro, Toast.LENGTH_LONG).show();
+                    return;
+                }
+                bloqueioSenha.setText("");
+                estadoLicenca = "";
+                aplicarConta();
+                atualizarConta();
             });
         }).start();
     }
@@ -1981,15 +2170,100 @@ public class MainActivity extends Activity {
         return "Boa noite";
     }
 
-    /** A página inicial: só carrosséis de capas (recentes, mais tocadas, novas), sem repetir a mesma música em dois lugares. */
+    /** A página inicial: baixar música, um resumo da biblioteca e carrosséis de capas, sem repetir a mesma música em dois lugares. */
     private void montarConteudoInicio() {
         LinearLayout c = conteudoInicio;
         c.removeAllViews();
         c.setPadding(dp(16), dp(2), dp(16), dp(28));
+        if (cartaoBaixar == null) cartaoBaixar = montarCartaoBaixar();
+        LinearLayout.LayoutParams pb = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        pb.setMargins(0, dp(4), 0, dp(12));
+        c.addView(cartaoBaixar, pb);
+
+        LinearLayout resumo = new LinearLayout(this);
+        Set<String> artistas = new java.util.HashSet<>();
+        for (Faixa f : todas) if (!f.artista.isEmpty()) artistas.add(Faixa.normalizar(f.artista));
+        String[][] dados = {
+                {String.valueOf(todas.size()), "músicas"},
+                {String.valueOf(artistas.size()), "artistas"},
+                {Historico.duracao(historico.tempoTotalMs()), "ouvido"},
+        };
+        for (int i = 0; i < dados.length; i++) {
+            LinearLayout cartao = cartaoDeNumero(dados[i][0], dados[i][1]);
+            ((TextView) cartao.getChildAt(0)).setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
+            cartao.setBackground(toque(forma(CARTAO, 14, LINHA), forma(0xFF000000, 14, 0)));
+            cartao.setOnClickListener(v -> mostrarEstatisticas());
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            p.setMargins(i == 0 ? 0 : dp(5), 0, i == dados.length - 1 ? 0 : dp(5), 0);
+            resumo.addView(cartao, p);
+        }
+        c.addView(resumo, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
         Set<String> mostradas = new java.util.HashSet<>();
         carrosselDoInicio(c, "Tocadas recentemente", semRepetidas(historico.recentes(todas, 15), mostradas), SECAO_RECENTES);
         carrosselDoInicio(c, "Mais tocadas", semRepetidas(historico.maisTocadas(todas, 30), mostradas), SECAO_MAIS);
         carrosselDoInicio(c, "Adicionadas recentemente", semRepetidas(Catalogo.ordenarPor(todas, 3, f -> etiquetas.duracao(f.uri)), mostradas), SECAO_MUSICAS);
+    }
+
+    /** O campo de baixar da página inicial (como no app do PC): link ou nome da música. */
+    private LinearLayout montarCartaoBaixar() {
+        LinearLayout cartao = new LinearLayout(this);
+        cartao.setOrientation(LinearLayout.VERTICAL);
+        cartao.setBackground(forma(CARTAO, 16, LINHA));
+        cartao.setPadding(dp(14), dp(12), dp(14), dp(14));
+        LinearLayout topo = new LinearLayout(this);
+        topo.setGravity(Gravity.CENTER_VERTICAL);
+        IconeView ic = new IconeView(this, IconeView.DOWNLOAD);
+        ic.definir(IconeView.DOWNLOAD, ACENTO);
+        topo.addView(ic, new LinearLayout.LayoutParams(dp(20), dp(20)));
+        TextView titulo = texto(15, TEXTO, true);
+        titulo.setText("Baixar música");
+        titulo.setPadding(dp(8), 0, 0, 0);
+        topo.addView(titulo);
+        cartao.addView(topo);
+        LinearLayout linha = new LinearLayout(this);
+        linha.setGravity(Gravity.CENTER_VERTICAL);
+        final EditText campo = new EditText(this);
+        campo.setHint("Cole um link ou escreva o nome");
+        campo.setHintTextColor(SUAVE);
+        campo.setTextColor(TEXTO);
+        campo.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        campo.setSingleLine(true);
+        campo.setInputType(InputType.TYPE_CLASS_TEXT);
+        campo.setImeOptions(EditorInfo.IME_ACTION_GO);
+        campo.setBackground(forma(FUNDO, 12, LINHA));
+        campo.setPadding(dp(14), 0, dp(14), 0);
+        final Runnable baixar = () -> {
+            String texto = campo.getText().toString().trim();
+            if (texto.isEmpty()) {
+                Toast.makeText(this, "Escreva um link ou o nome da música.", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            if (prefs.arvore() == null) {
+                Toast.makeText(this, "Escolha primeiro a pasta de músicas.", Toast.LENGTH_LONG).show();
+                escolherPasta();
+                return;
+            }
+            InputMethodManager imm = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+            if (imm != null) imm.hideSoftInputFromWindow(campo.getWindowToken(), 0);
+            campo.setText("");
+            iniciarDownload(texto);
+        };
+        campo.setOnEditorActionListener((v, acao, ev) -> {
+            baixar.run();
+            return true;
+        });
+        LinearLayout.LayoutParams pc = new LinearLayout.LayoutParams(0, dp(46), 1f);
+        pc.setMargins(0, dp(10), dp(8), 0);
+        linha.addView(campo, pc);
+        TextView botao = botao("Baixar", true, baixar);
+        botao.setTextColor(0xFFFFFFFF);
+        botao.setPadding(dp(18), 0, dp(18), 0);
+        LinearLayout.LayoutParams pbt = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(46));
+        pbt.setMargins(0, dp(10), 0, 0);
+        linha.addView(botao, pbt);
+        cartao.addView(linha);
+        return cartao;
     }
 
     /** As primeiras 15 que ainda não apareceram em outro carrossel. */
@@ -2037,10 +2311,10 @@ public class MainActivity extends Activity {
             l.nota.definir(IconeView.NOTA, SUAVE);
             l.caixaCapa.addView(l.nota, new FrameLayout.LayoutParams(dp(34), dp(34), Gravity.CENTER));
             cartao.addView(l.caixaCapa, new LinearLayout.LayoutParams(dp(132), dp(132)));
-            TextView nome = texto(14, TEXTO, true);
+            TextView nome = rolante(14, TEXTO, true);
             nome.setText(f.titulo);
             nome.setPadding(dp(2), dp(8), dp(2), 0);
-            TextView quem = texto(12, SUAVE, false);
+            TextView quem = rolante(12, SUAVE, false);
             quem.setText(f.artista);
             quem.setPadding(dp(2), dp(1), dp(2), 0);
             cartao.addView(nome);
@@ -2066,9 +2340,10 @@ public class MainActivity extends Activity {
     private void atualizarCabecalho() {
         icMenu.definir(secao == SECAO_COLECAO ? IconeView.SETA : IconeView.MENU, TEXTO);
         celulaMais.setVisibility(secao == SECAO_PLAYLISTS ? View.VISIBLE : View.GONE);
-        celulaAleatorio.setVisibility(modoGrupos() || todas.isEmpty() || secao == SECAO_INICIO ? View.GONE : View.VISIBLE);
+        celulaAleatorio.setVisibility(todas.isEmpty() || (secao != SECAO_MUSICAS && secao != SECAO_CURTIDAS) ? View.GONE : View.VISIBLE);
+        if (bFiltro != null) bFiltro.setVisibility(secao == SECAO_MUSICAS ? View.VISIBLE : View.GONE);
         if (secao == SECAO_INICIO) lblSecao.setText(Conta.logado(this) && !Conta.usuario(this).isEmpty() ? "Olá, " + Conta.usuario(this) : saudacao());
-        if (bOrdem != null) bOrdem.setVisibility(secao == SECAO_MUSICAS || secao == SECAO_CURTIDAS ? View.VISIBLE : View.GONE);
+        rotularBarra();
     }
 
     private void menuDoTemporizador() {
@@ -2297,6 +2572,16 @@ public class MainActivity extends Activity {
         return g;
     }
 
+    /** Texto de uma linha que, se não couber, rola de um lado ao outro (títulos e artistas). */
+    private TextView rolante(float sp, int cor, boolean negrito) {
+        TextView t = texto(sp, cor, negrito);
+        t.setEllipsize(TextUtils.TruncateAt.MARQUEE);
+        t.setMarqueeRepeatLimit(-1);
+        t.setHorizontallyScrolling(true);
+        t.setSelected(true);
+        return t;
+    }
+
     private TextView texto(float sp, int cor, boolean negrito) {
         TextView t = new TextView(this);
         t.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
@@ -2407,23 +2692,18 @@ public class MainActivity extends Activity {
         pb.setMargins(dp(16), dp(6), dp(16), dp(8));
         raiz.addView(caixaBusca, pb);
 
-        // atalhos para tocar a lista inteira (somem nas listas de bandas, albuns, generos e playlists)
+        // ordem e filtro da lista de músicas
         celulaAleatorio = new FrameLayout(this);
         LinearLayout pilulas = new LinearLayout(this);
         pilulas.setGravity(Gravity.CENTER_VERTICAL);
-        TextView bTocar = botao("Tocar tudo", true, this::tocarTudo);
-        bTocar.setTextColor(0xFFFFFFFF);
-        TextView bAleatorio = botao("Aleatório", false, this::tocarAleatorio);
-        LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(0, dp(42), 1f);
-        pp.setMargins(0, 0, dp(5), 0);
-        LinearLayout.LayoutParams pa = new LinearLayout.LayoutParams(0, dp(42), 1f);
-        pa.setMargins(dp(5), 0, 0, 0);
-        pilulas.addView(bTocar, pp);
-        pilulas.addView(bAleatorio, pa);
         bOrdem = botao("Ordem", false, this::menuOrdenar);
-        LinearLayout.LayoutParams po = new LinearLayout.LayoutParams(dp(84), dp(42));
-        po.setMargins(dp(10), 0, 0, 0);
+        bFiltro = botao("Filtrar", false, this::menuFiltrar);
+        LinearLayout.LayoutParams po = new LinearLayout.LayoutParams(0, dp(42), 1f);
+        po.setMargins(0, 0, dp(5), 0);
+        LinearLayout.LayoutParams pf = new LinearLayout.LayoutParams(0, dp(42), 1f);
+        pf.setMargins(dp(5), 0, 0, 0);
         pilulas.addView(bOrdem, po);
+        pilulas.addView(bFiltro, pf);
         celulaAleatorio.addView(pilulas, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         LinearLayout.LayoutParams pcel = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         pcel.setMargins(dp(16), 0, dp(16), dp(6));
@@ -2518,6 +2798,8 @@ public class MainActivity extends Activity {
         gaveta.setTranslationX(-largura);
         gaveta.setVisibility(View.GONE);
         tudo.addView(gaveta, new FrameLayout.LayoutParams(largura, ViewGroup.LayoutParams.MATCH_PARENT));
+        telaBloqueio = montarBloqueio();
+        tudo.addView(telaBloqueio, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         aplicarIconesIniciais();
         marcarSecao();
         atualizarCabecalho();
@@ -2559,8 +2841,8 @@ public class MainActivity extends Activity {
         LinearLayout nomes = new LinearLayout(this);
         nomes.setOrientation(LinearLayout.VERTICAL);
         nomes.setPadding(dp(12), 0, dp(8), 0);
-        lblTituloMini = texto(15, TEXTO, true);
-        lblArtistaMini = texto(12, SUAVE, false);
+        lblTituloMini = rolante(15, TEXTO, true);
+        lblArtistaMini = rolante(12, SUAVE, false);
         nomes.addView(lblTituloMini);
         nomes.addView(lblArtistaMini);
         linha.addView(nomes, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
@@ -2677,9 +2959,9 @@ public class MainActivity extends Activity {
         info.setPadding(0, dp(12), 0, 0);
         LinearLayout nomes = new LinearLayout(this);
         nomes.setOrientation(LinearLayout.VERTICAL);
-        lblTitulo = texto(22, TEXTO, true);
+        lblTitulo = rolante(22, TEXTO, true);
         lblTitulo.setText("Nada tocando");
-        lblArtista = texto(16, SUAVE, false);
+        lblArtista = rolante(16, SUAVE, false);
         nomes.addView(lblTitulo);
         nomes.addView(lblArtista);
         lblProxima = texto(12, SUAVE, false);
@@ -3304,9 +3586,9 @@ public class MainActivity extends Activity {
                 nova.nota.definir(IconeView.NOTA, SUAVE);
                 nova.caixaCapa.addView(nova.nota, new FrameLayout.LayoutParams(dp(40), dp(40), Gravity.CENTER));
                 cel.addView(nova.caixaCapa, new LinearLayout.LayoutParams(lado, lado));
-                nova.titulo = texto(15, TEXTO, true);
+                nova.titulo = rolante(15, TEXTO, true);
                 nova.titulo.setPadding(dp(2), dp(8), dp(2), 0);
-                nova.artista = texto(12, SUAVE, false);
+                nova.artista = rolante(12, SUAVE, false);
                 nova.artista.setPadding(dp(2), dp(1), dp(2), 0);
                 cel.addView(nova.titulo);
                 cel.addView(nova.artista);
@@ -3358,8 +3640,8 @@ public class MainActivity extends Activity {
                 LinearLayout col = new LinearLayout(MainActivity.this);
                 col.setOrientation(LinearLayout.VERTICAL);
                 col.setPadding(dp(12), 0, dp(6), 0);
-                nova.titulo = texto(16, TEXTO, false);
-                nova.artista = texto(13, SUAVE, false);
+                nova.titulo = rolante(16, TEXTO, false);
+                nova.artista = rolante(13, SUAVE, false);
                 col.addView(nova.titulo);
                 col.addView(nova.artista);
                 linha.addView(col, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
