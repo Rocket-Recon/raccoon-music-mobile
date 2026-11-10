@@ -177,14 +177,9 @@ public final class Baixador {
                         if (!artista.isEmpty()) tags += " -metadata artist=\"" + aspas(Limpeza.formatarArtista(artista)) + "\"";
                         pedido.addOption("--postprocessor-args", "ffmpeg:" + tags);
                     }
-                    // a imagem fica também numa pasta à parte: se não entrar no arquivo, o app guarda a capa por conta própria
+                    // a imagem do vídeo fica à parte só como reserva; a capa guardada é a oficial do álbum quando existe
                     pedido.addOption("--write-thumbnail");
                     pedido.addOption("--convert-thumbnails", "jpg");
-                    if (tentativa == 0) {
-                        // capa quadrada no arquivo, como no PC; se falhar, tenta de novo sem embutir
-                        pedido.addOption("--embed-thumbnail");
-                        pedido.addOption("--ppa", "ThumbnailsConvertor+ffmpeg_o:-vf crop='min(iw,ih)':'min(iw,ih)'");
-                    }
                     pedido.addOption("--windows-filenames");
                     pedido.addOption("--trim-filenames", String.valueOf(Pedido.MAX_NOME));
                     pedido.addOption("-o", Pedido.modelo(temporaria.getAbsolutePath(), nomeFinal));
@@ -204,7 +199,8 @@ public final class Baixador {
                 return new Resultado(false, "Não consegui baixar essa música.");
             }
             String arquivo = pronto.getName();
-            byte[] imagem = imagemBaixada(temporaria);
+            byte[] imagem = CapaOficial.buscar(artista, limpo);
+            if (imagem == null) imagem = imagemBaixada(temporaria);
             Uri novo = copiar(contexto.getContentResolver(), pronto, Uri.parse(arvore), Pedido.mime(formato));
             if (novo == null) {
                 return new Resultado(false, "Baixei, mas não consegui salvar na pasta de músicas.");
