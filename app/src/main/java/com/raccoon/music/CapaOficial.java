@@ -33,27 +33,40 @@ public final class CapaOficial {
     private CapaOficial() {
     }
 
-    /** Procura a faixa nas fontes oficiais; null quando nenhuma confirma. */
+    /** Procura a faixa nas fontes oficiais; null quando nenhuma confirma. `contexto` junta canal e título do vídeo (onde o artista costuma aparecer). */
     public static Oficial buscar(String artista, String titulo, String contexto) {
         String a = artista == null ? "" : artista.trim();
         String t = titulo == null ? "" : titulo.trim();
         if (t.isEmpty()) return null;
-        try {
-            String extra = contexto == null ? "" : contexto;
-            Oficial o = a.isEmpty() ? null : noItunes(a, t, "US", "");
-            if (o == null && !a.isEmpty()) o = noItunes(a, t, "BR", "");
-            // artista do canal não bate (ex.: canal "AlokVEVO"): vale o artista que aparece no próprio título ou canal
-            if (o == null) o = noItunes("", t, "US", extra);
-            if (o == null) o = noItunes("", t, "BR", extra);
-            if (o != null) return o;
-        } catch (Throwable e) {
-            // tenta a reserva
+        String extra = contexto == null ? "" : contexto;
+        // pares (artista, título) a tentar: o artista do canal, o artista escrito no título ("Artista - Faixa") e, por fim, só o título
+        List<String[]> pares = new ArrayList<>();
+        int corte = t.indexOf(" - ");
+        String esquerda = corte > 0 ? t.substring(0, corte).trim() : "";
+        String direita = corte > 0 ? t.substring(corte + 3).trim() : "";
+        boolean prefixoEArtista = !esquerda.isEmpty() && !direita.isEmpty() && (a.isEmpty() || artistaCombina(a, esquerda) || artistaCombina(esquerda, a));
+        if (!a.isEmpty()) pares.add(new String[] {a, prefixoEArtista ? direita : t});
+        if (!esquerda.isEmpty() && !direita.isEmpty()) pares.add(new String[] {esquerda, direita});
+        pares.add(new String[] {"", prefixoEArtista ? direita : t});
+        for (String[] par : pares) {
+            for (String pais : new String[] {"US", "BR"}) {
+                try {
+                    Oficial o = noItunes(par[0], par[1], pais, par[0].isEmpty() ? extra : "");
+                    if (o != null) return o;
+                } catch (Throwable e) {
+                    // tenta o próximo
+                }
+            }
         }
-        try {
-            return noMusicBrainz(a, t);
-        } catch (Throwable e) {
-            return null;
+        for (int i = 0; i < pares.size() - 1 && i < 2; i++) {
+            try {
+                Oficial o = noMusicBrainz(pares.get(i)[0], pares.get(i)[1]);
+                if (o != null) return o;
+            } catch (Throwable e) {
+                // tenta o próximo
+            }
         }
+        return null;
     }
 
     /** Bytes de uma imagem; null em qualquer falha. */
@@ -75,6 +88,17 @@ public final class CapaOficial {
         return p.equals(a) || (Math.min(p.length(), a.length()) >= 4 && (p.contains(a) || a.contains(p)));
     }
 
+    /** Ao vivo, remix, acústica, karaokê etc. só valem quando o título pedido também diz isso. */
+    static boolean versaoDiferente(String pedido, String achado) {
+        String[] marcas = {"live", "ao vivo", "remix", "acoustic", "acustico", "karaoke", "instrumental", "tribute", "cover", "sped up", "slowed", "reverb"};
+        String p = " " + pedido.toLowerCase(java.util.Locale.ROOT) + " ";
+        String a = " " + achado.toLowerCase(java.util.Locale.ROOT) + " ";
+        for (String m : marcas) {
+            if (a.contains(" " + m) && !p.contains(m)) return true;
+        }
+        return false;
+    }
+
     static boolean artistaCombina(String pedido, String achado) {
         String p = normalizar(pedido);
         String a = normalizar(achado);
@@ -83,8 +107,8 @@ public final class CapaOficial {
     }
 
     private static Oficial noItunes(String artista, String titulo, String pais, String extra) throws Exception {
-        String termo = (artista.isEmpty() ? "" : artista + " ") + titulo;
-        String url = "https://itunes.apple.com/search?media=music&entity=song&limit=8&country=" + pais + "&term=" + URLEncoder.encode(termo, "UTF-8");
+        String termo = ((artista.isEmpty() ? "" : artista + " ") + titulo.replaceAll("\\(.*?\\)|\\[.*?\\]", " ")).replaceAll("\\s+", " ").trim();
+        String url = "https://itunes.apple.com/search?media=music&entity=song&limit=25&country=" + pais + "&term=" + URLEncoder.encode(termo, "UTF-8");
         byte[] corpo = baixar(url, "application/json");
         if (corpo == null) return null;
         JSONArray lista = new JSONObject(new String(corpo, StandardCharsets.UTF_8)).optJSONArray("results");
@@ -95,6 +119,7 @@ public final class CapaOficial {
             String nome = r.optString("trackName", "");
             String quem = r.optString("artistName", "");
             if (!tituloCombina(titulo, nome)) continue;
+            if (versaoDiferente(titulo, nome + " " + r.optString("collectionName", ""))) continue;
             String nq = normalizar(quem);
             boolean artistaOk;
             if (!artista.isEmpty()) artistaOk = artistaCombina(artista, quem);

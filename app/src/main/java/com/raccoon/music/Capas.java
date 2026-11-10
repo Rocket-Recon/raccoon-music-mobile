@@ -33,7 +33,16 @@ public final class Capas {
     private final ExecutorService fila = Executors.newFixedThreadPool(2);
     private final Handler ui = new Handler(Looper.getMainLooper());
 
+    private static volatile Capas atual;
+
+    /** Esquece o que estava na memória para esta música (ex.: o arquivo foi excluído e baixado de novo com o mesmo nome). */
+    private void esquecer(String uri) {
+        memoria.remove(uri);
+        semCapa.remove(uri);
+    }
+
     public Capas(Context contexto) {
+        atual = this;
         this.contexto = contexto.getApplicationContext();
         this.pasta = new File(this.contexto.getCacheDir(), "capas");
         pasta.mkdirs();
@@ -63,9 +72,13 @@ public final class Capas {
             File pasta = new File(contexto.getApplicationContext().getCacheDir(), "capas");
             pasta.mkdirs();
             new File(pasta, nomeDoArquivo(uri) + ".nao").delete();
+            boolean ok;
             try (FileOutputStream out = new FileOutputStream(new File(pasta, nomeDoArquivo(uri) + ".jpg"))) {
-                return pronta.compress(Bitmap.CompressFormat.JPEG, 90, out);
+                ok = pronta.compress(Bitmap.CompressFormat.JPEG, 90, out);
             }
+            Capas viva = atual;
+            if (ok && viva != null) viva.esquecer(uri);
+            return ok;
         } catch (Exception e) {
             return false;
         }

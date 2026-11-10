@@ -38,7 +38,13 @@ public final class Letras {
 
     /** Ja procurou a versao com tempo (achando ou nao)? Assim nao busca de novo toda vez. */
     public static boolean jaTentouSincronizada(Context c, Faixa f) {
-        return arquivoSinc(c, f).exists() || marcaSemSinc(c, f).exists();
+        return (arquivoSinc(c, f).exists() || marcaSemSinc(c, f).exists()) && marcaPorDuracao(c, f).exists();
+    }
+
+    /** Marca as letras buscadas já pela duração da música (a versão certa para o tempo da gravação). */
+    private static File marcaPorDuracao(Context c, Faixa f) {
+        File a = arquivo(c, f);
+        return new File(a.getParentFile(), a.getName().replace(".txt", ".v2"));
     }
 
     public static String sincronizada(Context c, Faixa f) {
@@ -114,12 +120,18 @@ public final class Letras {
 
     /** Letra da internet; null se nao achou ou se nao deu para conectar. Guarda no celular (a de ler e a com tempo, quando existe). */
     public static String buscar(Context c, Faixa f) {
+        return buscar(c, f, 0L);
+    }
+
+    /** Com a duração da música (ms), escolhe a versão da letra com o mesmo tempo, para a linha cantada não ficar adiantada nem atrasada. */
+    public static String buscar(Context c, Faixa f, long duracaoMs) {
         try {
             String titulo = limpar(f.titulo);
+            int seg = duracaoMs > 0 ? (int) Math.round(duracaoMs / 1000.0) : 0;
             JSONObject achado = null;
             boolean conectou = false;
             if (!f.artista.isEmpty()) {
-                String r = pegar("https://lrclib.net/api/get?artist_name=" + q(f.artista) + "&track_name=" + q(titulo));
+                String r = pegar("https://lrclib.net/api/get?artist_name=" + q(f.artista) + "&track_name=" + q(titulo) + (seg > 0 ? "&duration=" + seg : ""));
                 if (r != null) {
                     conectou = true;
                     JSONObject o = new JSONObject(r);
@@ -131,19 +143,32 @@ public final class Letras {
                 if (r != null) {
                     conectou = true;
                     JSONArray lista = new JSONArray(r);
-                    for (int i = 0; i < lista.length() && achado == null; i++) {
+                    double melhorNota = Double.MAX_VALUE;
+                    for (int i = 0; i < lista.length(); i++) {
                         JSONObject o = lista.getJSONObject(i);
-                        if (temLetra(o)) achado = o;
+                        if (!temLetra(o)) continue;
+                        double nota = daRespostaSinc(o) != null ? 0 : 1000;
+                        if (seg > 0) nota += Math.abs(o.optDouble("duration", seg) - seg);
+                        if (nota < melhorNota) {
+                            melhorNota = nota;
+                            achado = o;
+                        }
                     }
                 }
             }
             if (achado == null) return null;
             String sinc = daRespostaSinc(achado);
+            // versão com mais de 10 s de diferença na duração costuma ter outro tempo: fica só o texto
+            if (sinc != null && seg > 0 && Math.abs(achado.optDouble("duration", seg) - seg) > 10) sinc = null;
             String simples = daResposta(achado);
             if (simples == null && sinc != null) simples = Lrc.semTempos(sinc);
             if (simples != null) gravar(arquivo(c, f), simples);
             if (sinc != null) gravar(arquivoSinc(c, f), sinc);
-            else if (conectou) gravar(marcaSemSinc(c, f), "-");
+            else if (conectou) {
+                arquivoSinc(c, f).delete();  // a versão com tempo de antes era de outra gravação
+                gravar(marcaSemSinc(c, f), "-");
+            }
+            if (conectou) gravar(marcaPorDuracao(c, f), "-");
             return simples;
         } catch (Exception e) {
             return null;

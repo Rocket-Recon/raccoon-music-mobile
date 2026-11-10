@@ -121,6 +121,7 @@ public final class Baixador {
         /** {artista, faixa, canal, titulo}; "NA" quando o yt-dlp não sabe. */
         String[] d = {"NA", "NA", "NA", "NA"};
         String miniatura = "";
+        long duracaoMs;
         long quando;
     }
 
@@ -154,6 +155,7 @@ public final class Baixador {
                 info.json = l;
                 info.d = new String[] {campo(o, "artist"), campo(o, "track"), campo(o, "uploader"), campo(o, "title")};
                 info.miniatura = o.isNull("thumbnail") ? "" : o.optString("thumbnail", "");
+                info.duracaoMs = Math.round(o.optDouble("duration", 0d) * 1000d);
                 break;
             }
         } catch (Exception e) {
@@ -283,7 +285,7 @@ public final class Baixador {
             if (novo == null) {
                 return new Resultado(false, "Baixei, mas não consegui salvar na pasta de músicas.");
             }
-            complementar(contexto, novo.toString(), arquivo, imagem);
+            complementar(contexto, novo.toString(), arquivo, imagem, info.duracaoMs);
             return new Resultado(true, arquivo.substring(0, arquivo.length() - formato.length() - 1));
         } finally {
             limpar(temporaria);
@@ -291,17 +293,23 @@ public final class Baixador {
     }
 
     /** Depois de salvar: guarda a capa e já busca a letra, para a música nova aparecer completa. Nada aqui invalida o download. */
-    private static void complementar(Context contexto, String uri, String arquivo, byte[] imagem) {
+    private static void complementar(final Context contexto, String uri, String arquivo, byte[] imagem, final long duracaoMs) {
         try {
             Capas.guardar(contexto, uri, imagem);
         } catch (Throwable e) {
             // sem capa guardada: o app tenta ler a do arquivo
         }
-        try {
-            Letras.buscar(contexto, new Faixa(uri, arquivo));
-        } catch (Throwable e) {
-            // sem letra agora: o player busca quando for aberta
-        }
+        final Faixa nova = new Faixa(uri, arquivo);
+        // a letra vem em segundo plano: o download termina sem esperar por ela (o player busca de novo se faltar)
+        Thread letra = new Thread(() -> {
+            try {
+                Letras.buscar(contexto, nova, duracaoMs);
+            } catch (Throwable e) {
+                // sem letra agora
+            }
+        });
+        letra.setDaemon(false);
+        letra.start();
     }
 
     private static Uri copiar(ContentResolver cr, File arquivo, Uri arvore, String mime) {
