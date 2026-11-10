@@ -41,6 +41,7 @@ import android.widget.BaseAdapter;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.GridView;
+import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
@@ -83,12 +84,15 @@ public class MainActivity extends Activity {
     private final Map<String, Faixa> porUri = new HashMap<>();
     private final Map<String, Integer> posicao = new HashMap<>();
     private Set<String> curtidas;
-    private static final int SECAO_MUSICAS = 0, SECAO_ARTISTAS = 1, SECAO_ALBUNS = 2, SECAO_GENEROS = 3, SECAO_PLAYLISTS = 4,
-            SECAO_CURTIDAS = 5, SECAO_RECENTES = 6, SECAO_MAIS = 7, SECAO_COLECAO = 8;
-    private static final String[] NOMES_SECAO = {"Músicas", "Artistas", "Álbuns", "Gêneros", "Playlists", "Curtidas", "Tocadas recentemente", "Mais tocadas", "Lista"};
-    private static final int SECOES_NO_MENU = 8;
-    private int secao = SECAO_MUSICAS;
-    private int secaoAnterior = SECAO_MUSICAS;
+    private static final int SECAO_INICIO = 0, SECAO_MUSICAS = 1, SECAO_ARTISTAS = 2, SECAO_ALBUNS = 3, SECAO_GENEROS = 4, SECAO_PLAYLISTS = 5,
+            SECAO_CURTIDAS = 6, SECAO_RECENTES = 7, SECAO_MAIS = 8, SECAO_COLECAO = 9;
+    private static final String[] NOMES_SECAO = {"Início", "Músicas", "Artistas", "Álbuns", "Gêneros", "Playlists", "Curtidas", "Tocadas recentemente", "Mais tocadas", "Lista"};
+    private static final int SECOES_NO_MENU = 9;
+    private int secao = SECAO_INICIO;
+    private int secaoAnterior = SECAO_INICIO;
+    private ScrollView inicio;
+    private LinearLayout conteudoInicio;
+    private FrameLayout caixaDaBusca;
     private String colecaoTitulo = "";
     private List<Faixa> colecaoFaixas = new ArrayList<>();
     private String colecaoPlaylist = null;  // nome da playlist do celular que esta aberta (para poder tirar musicas dela)
@@ -427,9 +431,14 @@ public class MainActivity extends Activity {
         }
         if (adaptador != null) adaptador.notifyDataSetChanged();
         if (adaptadorGrade != null) adaptadorGrade.notifyDataSetChanged();
+        boolean naInicio = secao == SECAO_INICIO && texto.isEmpty();
         if (grade != null && lista != null) {
-            grade.setVisibility(modoGrade() ? View.VISIBLE : View.GONE);
-            lista.setVisibility(modoGrade() ? View.GONE : View.VISIBLE);
+            grade.setVisibility(!naInicio && modoGrade() ? View.VISIBLE : View.GONE);
+            lista.setVisibility(!naInicio && !modoGrade() ? View.VISIBLE : View.GONE);
+        }
+        if (inicio != null) {
+            inicio.setVisibility(naInicio && !todas.isEmpty() ? View.VISIBLE : View.GONE);
+            if (naInicio && !todas.isEmpty()) montarConteudoInicio();
         }
         atualizarContagem();
         atualizarVazio();
@@ -1861,10 +1870,137 @@ public class MainActivity extends Activity {
         if (secao == SECAO_COLECAO) irPara(secaoAnterior); else abrirGaveta();
     }
 
+    private String saudacao() {
+        int hora = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY);
+        if (hora >= 5 && hora < 12) return "Bom dia";
+        if (hora >= 12 && hora < 18) return "Boa tarde";
+        return "Boa noite";
+    }
+
+    /** A página inicial: tocar tudo, atalhos para as coleções e carrosséis de capas (recentes, mais tocadas, novas). */
+    private void montarConteudoInicio() {
+        LinearLayout c = conteudoInicio;
+        c.removeAllViews();
+        c.setPadding(dp(16), dp(6), dp(16), dp(28));
+
+        LinearLayout acoes = new LinearLayout(this);
+        TextView bTocar = botao("Tocar tudo", true, this::tocarTudo);
+        bTocar.setTextColor(0xFFFFFFFF);
+        TextView bAleatorio = botao("Aleatório", false, this::tocarAleatorio);
+        LinearLayout.LayoutParams p1 = new LinearLayout.LayoutParams(0, dp(52), 1f);
+        p1.setMargins(0, 0, dp(5), 0);
+        LinearLayout.LayoutParams p2 = new LinearLayout.LayoutParams(0, dp(52), 1f);
+        p2.setMargins(dp(5), 0, 0, 0);
+        acoes.addView(bTocar, p1);
+        acoes.addView(bAleatorio, p2);
+        LinearLayout.LayoutParams pa = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        pa.setMargins(0, 0, 0, dp(14));
+        c.addView(acoes, pa);
+
+        linhaDeCartoes(c, atalhoDoInicio("Curtidas", IconeView.CORACAO, plural(curtidas.size(), "música", "músicas"), () -> irPara(SECAO_CURTIDAS)),
+                atalhoDoInicio("Playlists", IconeView.PLAYLIST, plural(minhas.nomes().size(), "playlist", "playlists"), () -> irPara(SECAO_PLAYLISTS)));
+        linhaDeCartoes(c, atalhoDoInicio("Artistas", IconeView.ARTISTA, "Por banda", () -> irPara(SECAO_ARTISTAS)),
+                atalhoDoInicio("Álbuns", IconeView.DISCO, "Por disco", () -> irPara(SECAO_ALBUNS)));
+        linhaDeCartoes(c, atalhoDoInicio("Músicas", IconeView.NOTA, plural(todas.size(), "música", "músicas"), () -> irPara(SECAO_MUSICAS)),
+                atalhoDoInicio("Baixar", IconeView.DOWNLOAD, "Novas músicas", this::baixarNoCelular));
+
+        carrosselDoInicio(c, "Tocadas recentemente", historico.recentes(todas, 15), SECAO_RECENTES);
+        carrosselDoInicio(c, "Mais tocadas", historico.maisTocadas(todas, 15), SECAO_MAIS);
+        List<Faixa> novas = Catalogo.ordenarPor(todas, 3, f -> etiquetas.duracao(f.uri));
+        carrosselDoInicio(c, "Adicionadas recentemente", new ArrayList<>(novas.subList(0, Math.min(15, novas.size()))), SECAO_MUSICAS);
+    }
+
+    private LinearLayout atalhoDoInicio(String rotulo, int tipoIcone, String detalhe, Runnable acao) {
+        LinearLayout t = new LinearLayout(this);
+        t.setGravity(Gravity.CENTER_VERTICAL);
+        t.setPadding(dp(12), dp(12), dp(12), dp(12));
+        t.setBackground(toque(forma(CARTAO, 16, LINHA), forma(0xFF000000, 16, 0)));
+        FrameLayout disco = new FrameLayout(this);
+        disco.setBackground(forma(Cores.misturar(CARTAO, ACENTO, 0.30), 20, 0));
+        IconeView ic = new IconeView(this, tipoIcone);
+        ic.definir(tipoIcone, ACENTO);
+        disco.addView(ic, new FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER));
+        t.addView(disco, new LinearLayout.LayoutParams(dp(40), dp(40)));
+        LinearLayout nomes = new LinearLayout(this);
+        nomes.setOrientation(LinearLayout.VERTICAL);
+        nomes.setPadding(dp(12), 0, 0, 0);
+        TextView a = texto(15, TEXTO, true);
+        a.setText(rotulo);
+        TextView b = texto(12, SUAVE, false);
+        b.setText(detalhe);
+        nomes.addView(a);
+        nomes.addView(b);
+        t.addView(nomes, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        t.setOnClickListener(v -> acao.run());
+        return t;
+    }
+
+    private void carrosselDoInicio(LinearLayout pai, String titulo, final List<Faixa> faixas, final int destino) {
+        if (faixas.isEmpty()) return;
+        LinearLayout cab = new LinearLayout(this);
+        cab.setGravity(Gravity.CENTER_VERTICAL);
+        cab.setPadding(0, dp(14), 0, dp(8));
+        TextView t = texto(18, TEXTO, true);
+        t.setText(titulo);
+        cab.addView(t, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView ver = texto(13, ACENTO, true);
+        ver.setText("Ver tudo");
+        ver.setPadding(dp(10), dp(6), 0, dp(6));
+        ver.setOnClickListener(v -> irPara(destino));
+        cab.addView(ver);
+        pai.addView(cab);
+
+        HorizontalScrollView rolagem = new HorizontalScrollView(this);
+        rolagem.setHorizontalScrollBarEnabled(false);
+        rolagem.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        LinearLayout fila = new LinearLayout(this);
+        for (int i = 0; i < faixas.size(); i++) {
+            final int indice = i;
+            final Faixa f = faixas.get(i);
+            LinearLayout cartao = new LinearLayout(this);
+            cartao.setOrientation(LinearLayout.VERTICAL);
+            Linha l = new Linha();
+            l.caixaCapa = new FrameLayout(this);
+            l.caixaCapa.setBackground(forma(CARTAO, 14, LINHA));
+            arredondar(l.caixaCapa, 14);
+            l.capa = new ImageView(this);
+            l.capa.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            l.caixaCapa.addView(l.capa, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            l.nota = new IconeView(this, IconeView.NOTA);
+            l.nota.definir(IconeView.NOTA, SUAVE);
+            l.caixaCapa.addView(l.nota, new FrameLayout.LayoutParams(dp(34), dp(34), Gravity.CENTER));
+            cartao.addView(l.caixaCapa, new LinearLayout.LayoutParams(dp(132), dp(132)));
+            TextView nome = texto(14, TEXTO, true);
+            nome.setText(f.titulo);
+            nome.setPadding(dp(2), dp(8), dp(2), 0);
+            TextView quem = texto(12, SUAVE, false);
+            quem.setText(f.artista);
+            quem.setPadding(dp(2), dp(1), dp(2), 0);
+            cartao.addView(nome);
+            cartao.addView(quem);
+            ligarCapa(l, f);
+            cartao.setOnClickListener(v -> {
+                if (prefs.embaralhar()) tocarFila(Catalogo.embaralhar(faixas, indice, sorteio), 0);
+                else tocarFila(new ArrayList<>(faixas), indice);
+            });
+            cartao.setOnLongClickListener(v -> {
+                v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+                opcoesDaFaixa(f);
+                return true;
+            });
+            LinearLayout.LayoutParams pc = new LinearLayout.LayoutParams(dp(132), ViewGroup.LayoutParams.WRAP_CONTENT);
+            pc.setMargins(0, 0, dp(12), 0);
+            fila.addView(cartao, pc);
+        }
+        rolagem.addView(fila);
+        pai.addView(rolagem, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+    }
+
     private void atualizarCabecalho() {
         icMenu.definir(secao == SECAO_COLECAO ? IconeView.SETA : IconeView.MENU, TEXTO);
         celulaMais.setVisibility(secao == SECAO_PLAYLISTS ? View.VISIBLE : View.GONE);
-        celulaAleatorio.setVisibility(modoGrupos() || todas.isEmpty() ? View.GONE : View.VISIBLE);
+        celulaAleatorio.setVisibility(modoGrupos() || todas.isEmpty() || secao == SECAO_INICIO ? View.GONE : View.VISIBLE);
+        if (secao == SECAO_INICIO) lblSecao.setText(saudacao());
         if (bOrdem != null) bOrdem.setVisibility(secao == SECAO_MUSICAS || secao == SECAO_CURTIDAS ? View.VISIBLE : View.GONE);
     }
 
@@ -2191,6 +2327,7 @@ public class MainActivity extends Activity {
         });
         edtBusca.setPadding(dp(16), 0, dp(48), 0);
         FrameLayout caixaBusca = new FrameLayout(this);
+        caixaDaBusca = caixaBusca;
         caixaBusca.addView(edtBusca, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         limparBusca = new FrameLayout(this);
         IconeView xBusca = new IconeView(this, IconeView.FECHAR);
@@ -2271,6 +2408,13 @@ public class MainActivity extends Activity {
         });
         grade.setVisibility(View.GONE);
         meio.addView(grade, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        inicio = new ScrollView(this);
+        inicio.setVerticalScrollBarEnabled(false);
+        inicio.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        conteudoInicio = new LinearLayout(this);
+        conteudoInicio.setOrientation(LinearLayout.VERTICAL);
+        inicio.addView(conteudoInicio, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        meio.addView(inicio, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         lblVazio = texto(16, SUAVE, false);
         lblVazio.setSingleLine(false);
         lblVazio.setGravity(Gravity.CENTER);
@@ -2565,7 +2709,7 @@ public class MainActivity extends Activity {
     }
 
     // ------------------------------------------------------------------ menu lateral
-    private static final int[] ICONES_SECAO = {IconeView.NOTA, IconeView.ARTISTA, IconeView.DISCO, IconeView.ETIQUETA, IconeView.PLAYLIST, IconeView.CORACAO, IconeView.RELOGIO, IconeView.ESTRELA, IconeView.LISTA};
+    private static final int[] ICONES_SECAO = {IconeView.CASA, IconeView.NOTA, IconeView.ARTISTA, IconeView.DISCO, IconeView.ETIQUETA, IconeView.PLAYLIST, IconeView.CORACAO, IconeView.RELOGIO, IconeView.ESTRELA, IconeView.LISTA};
 
     /** Uma linha do menu: icone e nome. O nome e o segundo filho (veja rotuloDoItem). */
     private LinearLayout itemDoMenu(String rotulo, int tipoIcone, Runnable acao) {
@@ -2710,6 +2854,7 @@ public class MainActivity extends Activity {
         if (gavetaAberta) fecharGaveta();
         else if (tocandoAberto) fecharTocando();
         else if (secao == SECAO_COLECAO) irPara(secaoAnterior);
+        else if (secao != SECAO_INICIO) irPara(SECAO_INICIO);
         else super.onBackPressed();
     }
 

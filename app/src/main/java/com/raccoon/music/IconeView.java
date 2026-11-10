@@ -10,7 +10,7 @@ import android.view.View;
 /** Os icones do player, desenhados no codigo (assim nao dependem de nenhuma imagem nem de fonte de emoji). */
 public final class IconeView extends View {
     public static final int PLAY = 0, PAUSE = 1, PROXIMA = 2, ANTERIOR = 3, ALEATORIO = 4, REPETIR = 5, REPETIR_UM = 6, CORACAO = 7, CORACAO_CHEIO = 8, MENU = 9, SETA = 10, BAIXO = 11, FECHAR = 12, MAIS = 13, PONTOS = 14, FILA = 15, LETRA = 16, PLAYLIST_MAIS = 17, NOTA = 18, RELOGIO = 19,
-            ARTISTA = 20, DISCO = 21, ETIQUETA = 22, PLAYLIST = 23, ESTRELA = 24, ESTATISTICA = 25, EXPORTAR = 26, COMPUTADOR = 27, DOWNLOAD = 28, AJUSTES = 29, PASTA = 30, ATUALIZAR = 31, LISTA = 32;
+            ARTISTA = 20, DISCO = 21, ETIQUETA = 22, PLAYLIST = 23, ESTRELA = 24, ESTATISTICA = 25, EXPORTAR = 26, COMPUTADOR = 27, DOWNLOAD = 28, AJUSTES = 29, PASTA = 30, ATUALIZAR = 31, LISTA = 32, CASA = 33;
 
     private int tipo;
     private int cor = 0xFFC8C8D0;
@@ -59,6 +59,7 @@ public final class IconeView extends View {
             case PASTA: return "Pasta";
             case ATUALIZAR: return "Atualizar";
             case LISTA: return "Lista";
+            case CASA: return "Início";
             default: return null;
         }
     }
@@ -361,6 +362,23 @@ public final class IconeView extends View {
                 retangulo.set(5, 5, 19, 19);
                 c.drawArc(retangulo, -40, 270, false, tinta);
                 triangulo(c, 15.5f, 2.5f, 20.5f, 6.5f, 14.5f, 8.2f);
+                break;
+            case CASA:
+                traco();
+                caminho.reset();
+                caminho.moveTo(3.5f, 11f);
+                caminho.lineTo(12, 4f);
+                caminho.lineTo(20.5f, 11f);
+                c.drawPath(caminho, tinta);
+                caminho.reset();
+                caminho.moveTo(6, 9.5f);
+                caminho.lineTo(6, 19.5f);
+                caminho.lineTo(18, 19.5f);
+                caminho.lineTo(18, 9.5f);
+                c.drawPath(caminho, tinta);
+                linha(c, 10, 19.5f, 10, 14.5f);
+                linha(c, 10, 14.5f, 14, 14.5f);
+                linha(c, 14, 14.5f, 14, 19.5f);
                 break;
             case LISTA:
                 cheio();

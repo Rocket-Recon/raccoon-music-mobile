@@ -9,6 +9,9 @@ import com.yausername.ffmpeg.FFmpeg;
 import com.yausername.youtubedl_android.YoutubeDL;
 import com.yausername.youtubedl_android.YoutubeDLRequest;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
 import java.io.File;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -111,22 +114,53 @@ public final class Baixador {
         }
     }
 
-    private static final String SEP = "|||";
+    /** Dados do video, lidos uma vez só: o mesmo texto serve para sugerir o nome, buscar a capa oficial e baixar sem extrair de novo. */
+    private static final class Info {
+        String entrada = "";
+        String json = "";
+        /** {artista, faixa, canal, titulo}; "NA" quando o yt-dlp não sabe. */
+        String[] d = {"NA", "NA", "NA", "NA"};
+        String miniatura = "";
+        long quando;
+    }
 
-    /** Dados do video {artista, faixa, canal, titulo}; vazios se nao deu. Chamar fora da thread da tela. */
-    private static String[] dados(Context contexto, String entrada) {
+    private static Info ultimaInfo;
+
+    private static String campo(JSONObject o, String chave) {
+        if (o.isNull(chave)) return "NA";
+        String v = o.optString(chave, "NA").trim();
+        return v.isEmpty() ? "NA" : v;
+    }
+
+    private static synchronized Info obterInfo(Context contexto, String entrada) {
+        long agora = System.currentTimeMillis();
+        if (ultimaInfo != null && ultimaInfo.entrada.equals(entrada) && agora - ultimaInfo.quando < 15 * 60 * 1000L && !ultimaInfo.json.isEmpty()) {
+            return ultimaInfo;
+        }
+        Info info = new Info();
+        info.entrada = entrada;
+        info.quando = agora;
         try {
             YoutubeDLRequest pedido = new YoutubeDLRequest(entrada);
             pedido.addOption("--no-playlist");
             pedido.addOption("--skip-download");
-            pedido.addOption("--print", "%(artist)s" + SEP + "%(track)s" + SEP + "%(uploader)s" + SEP + "%(title)s");
-            String linha = Pedido.ultimaLinha(executar(contexto, pedido));
-            String[] p = linha.split(java.util.regex.Pattern.quote(SEP), -1);
-            if (p.length == 4) return p;
+            pedido.addOption("--dump-json");
+            String saida = executar(contexto, pedido);
+            String[] linhas = saida.split("\\r?\\n");
+            for (int i = linhas.length - 1; i >= 0; i--) {
+                String l = linhas[i].trim();
+                if (!l.startsWith("{")) continue;
+                JSONObject o = new JSONObject(l);
+                info.json = l;
+                info.d = new String[] {campo(o, "artist"), campo(o, "track"), campo(o, "uploader"), campo(o, "title")};
+                info.miniatura = o.isNull("thumbnail") ? "" : o.optString("thumbnail", "");
+                break;
+            }
         } catch (Exception e) {
-            // segue sem os dados
+            info.json = "";
         }
-        return new String[] {"", "", "", ""};
+        if (!info.json.isEmpty()) ultimaInfo = info;
+        return info;
     }
 
     private static String artistaDe(String[] d) {
@@ -138,12 +172,22 @@ public final class Baixador {
     public static String titulo(Context contexto, String texto) {
         String entrada = Pedido.entrada(texto);
         if (entrada.isEmpty() || !iniciar(contexto)) return "";
-        String[] d = dados(contexto, entrada);
+        String[] d = obterInfo(contexto, entrada).d;
         return Limpeza.nomeSugerido(artistaDe(d), d[1], d[3]);
     }
 
     private static String aspas(String t) {
         return t.replace("\"", "").replace("\\", "");
+    }
+
+    private static String etiqueta(String chave, String valor) {
+        return valor == null || valor.trim().isEmpty() ? "" : " -metadata " + chave + "=\"" + aspas(valor.trim()) + "\"";
+    }
+
+    private static void escrever(File arquivo, String texto) throws java.io.IOException {
+        try (OutputStream out = new java.io.FileOutputStream(arquivo)) {
+            out.write(texto.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        }
     }
 
     /** Bloqueia ate terminar: chamar fora da thread da tela. `nome` vazio usa o nome limpo no padrao do PC. */
@@ -155,31 +199,61 @@ public final class Baixador {
         limpar(temporaria);
         if (!temporaria.mkdirs() && !temporaria.isDirectory()) return new Resultado(false, "Sem espaço para baixar.");
         try {
-            String[] d = dados(contexto, entrada);
+            Info info = obterInfo(contexto, entrada);
+            String[] d = info.d;
             String artista = artistaDe(d);
             String faixa = d[1].equals("NA") ? "" : d[1];
             String limpo = Limpeza.formatarTitulo(Limpeza.limparLixo(faixa.isEmpty() ? d[3] : faixa));
-            String nomeFinal = nome == null || nome.trim().isEmpty() ? Limpeza.nomeSugerido(artista, d[1], d[3]) : nome;
+            CapaOficial.Oficial oficial = CapaOficial.buscar(artista, limpo, (artista + " " + d[2] + " " + d[3]));
+            String artistaTag = oficial != null && !oficial.artista.isEmpty() ? oficial.artista : Limpeza.formatarArtista(artista);
+            String tituloTag = oficial != null && !oficial.titulo.isEmpty() ? oficial.titulo : limpo;
+            String nomeFinal;
+            if (nome != null && !nome.trim().isEmpty()) nomeFinal = nome;
+            else if (oficial != null && !oficial.titulo.isEmpty()) nomeFinal = Pedido.nomeDoArquivo(artistaTag.isEmpty() ? tituloTag : Limpeza.formatarArtista(artistaTag) + " - " + tituloTag);
+            else nomeFinal = Limpeza.nomeSugerido(artista, d[1], d[3]);
+
+            // a imagem é buscada em paralelo ao download: a oficial do álbum e, sem ela, a miniatura do vídeo
+            final String enderecoDaCapa = oficial != null && !oficial.capa.isEmpty() ? oficial.capa : info.miniatura;
+            final byte[][] capaBaixada = new byte[1][];
+            Thread buscaDaCapa = new Thread(() -> capaBaixada[0] = CapaOficial.imagem(enderecoDaCapa));
+            buscaDaCapa.start();
+
             File pronto = null;
             Exception erro = null;
             for (int tentativa = 0; tentativa < 2 && pronto == null; tentativa++) {
                 limpar(temporaria);
                 temporaria.mkdirs();
                 try {
+                    boolean reaproveita = tentativa == 0 && !info.json.isEmpty();
                     YoutubeDLRequest pedido = new YoutubeDLRequest(entrada);
-                    pedido.addOption("--no-playlist");
+                    if (reaproveita) {
+                        // os dados já extraídos são reaproveitados (com a capa oficial no lugar da miniatura do vídeo)
+                        JSONObject o = new JSONObject(info.json);
+                        if (oficial != null && !oficial.capa.isEmpty()) {
+                            o.put("thumbnail", oficial.capa);
+                            o.put("thumbnails", new JSONArray().put(new JSONObject().put("url", oficial.capa).put("id", "0")));
+                        }
+                        File arquivoDeDados = new File(temporaria, "dados.info.json");
+                        escrever(arquivoDeDados, o.toString());
+                        pedido.addOption("--load-info-json", arquivoDeDados.getAbsolutePath());
+                    } else {
+                        pedido.addOption("--no-playlist");
+                    }
                     pedido.addOption("-x");
                     pedido.addOption("--audio-format", formato);
                     pedido.addOption("--audio-quality", taxa + "K");
                     pedido.addOption("--embed-metadata");
-                    if (!limpo.isEmpty()) {
-                        String tags = "-metadata title=\"" + aspas(limpo) + "\"";
-                        if (!artista.isEmpty()) tags += " -metadata artist=\"" + aspas(Limpeza.formatarArtista(artista)) + "\"";
-                        pedido.addOption("--postprocessor-args", "ffmpeg:" + tags);
+                    pedido.addOption("--concurrent-fragments", "4");
+                    pedido.addOption("--no-mtime");
+                    String tags = etiqueta("title", tituloTag) + etiqueta("artist", artistaTag);
+                    if (oficial != null) tags += etiqueta("album", oficial.album) + etiqueta("album_artist", artistaTag) + etiqueta("genre", oficial.genero) + etiqueta("date", oficial.ano);
+                    if (!tags.isEmpty()) pedido.addOption("--postprocessor-args", "ffmpeg:" + tags.trim());
+                    if (reaproveita) {
+                        // capa dentro do arquivo; se falhar, a segunda tentativa baixa sem embutir
+                        pedido.addOption("--embed-thumbnail");
+                        pedido.addOption("--convert-thumbnails", "jpg");
+                        if (oficial == null) pedido.addOption("--ppa", "ThumbnailsConvertor+ffmpeg_o:-vf crop='min(iw,ih)':'min(iw,ih)'");
                     }
-                    // a imagem do vídeo fica à parte só como reserva; a capa guardada é a oficial do álbum quando existe
-                    pedido.addOption("--write-thumbnail");
-                    pedido.addOption("--convert-thumbnails", "jpg");
                     pedido.addOption("--windows-filenames");
                     pedido.addOption("--trim-filenames", String.valueOf(Pedido.MAX_NOME));
                     pedido.addOption("-o", Pedido.modelo(temporaria.getAbsolutePath(), nomeFinal));
@@ -199,8 +273,12 @@ public final class Baixador {
                 return new Resultado(false, "Não consegui baixar essa música.");
             }
             String arquivo = pronto.getName();
-            byte[] imagem = CapaOficial.buscar(artista, limpo);
-            if (imagem == null) imagem = imagemBaixada(temporaria);
+            try {
+                buscaDaCapa.join(6000L);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            byte[] imagem = capaBaixada[0];
             Uri novo = copiar(contexto.getContentResolver(), pronto, Uri.parse(arvore), Pedido.mime(formato));
             if (novo == null) {
                 return new Resultado(false, "Baixei, mas não consegui salvar na pasta de músicas.");
@@ -209,26 +287,6 @@ public final class Baixador {
             return new Resultado(true, arquivo.substring(0, arquivo.length() - formato.length() - 1));
         } finally {
             limpar(temporaria);
-        }
-    }
-
-    /** A imagem de capa que o yt-dlp deixou ao lado do áudio (null quando não há). */
-    private static byte[] imagemBaixada(File pasta) {
-        File[] itens = pasta.listFiles();
-        if (itens == null) return null;
-        File melhor = null;
-        for (File f : itens) {
-            String n = f.getName().toLowerCase(java.util.Locale.ROOT);
-            if ((n.endsWith(".jpg") || n.endsWith(".jpeg") || n.endsWith(".png") || n.endsWith(".webp")) && (melhor == null || f.length() > melhor.length())) melhor = f;
-        }
-        if (melhor == null) return null;
-        try (InputStream in = new java.io.FileInputStream(melhor); java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream()) {
-            byte[] bloco = new byte[65536];
-            int n;
-            while ((n = in.read(bloco)) > 0) out.write(bloco, 0, n);
-            return out.toByteArray();
-        } catch (Exception e) {
-            return null;
         }
     }
 
