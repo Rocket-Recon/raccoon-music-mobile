@@ -1702,9 +1702,12 @@ public class MainActivity extends Activity {
         l.addView(p, new LinearLayout.LayoutParams(dp(22), ViewGroup.LayoutParams.WRAP_CONTENT));
         TextView n = texto(15, TEXTO, false);
         n.setText(nome);
+        n.setSingleLine(true);
+        n.setEllipsize(android.text.TextUtils.TruncateAt.END);
         l.addView(n, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         TextView d = texto(13, SUAVE, false);
         d.setText(detalhe);
+        d.setSingleLine(true);
         d.setPadding(dp(10), 0, 0, 0);
         l.addView(d);
         pai.addView(l);
