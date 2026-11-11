@@ -61,6 +61,10 @@ public final class Preferencias {
     public boolean ordemInvertida() { return sp.getBoolean("ordem_invertida", false); }
     public void ordemInvertida(boolean v) { sp.edit().putBoolean("ordem_invertida", v).apply(); }
 
+    /** Fila de downloads que sobrevive ao fechar o app (veja FilaDeDownload.serializar). */
+    public String filaDeDownload() { return sp.getString("fila_download", ""); }
+    public void filaDeDownload(String texto) { sp.edit().putString("fila_download", texto).apply(); }
+
     /** Combinações de cores salvas (texto em linhas; veja Combinacoes). */
     public String combinacoes() { return sp.getString("combinacoes", ""); }
     public void combinacoes(String texto) { sp.edit().putString("combinacoes", texto).apply(); }

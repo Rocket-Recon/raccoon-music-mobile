@@ -46,6 +46,25 @@ public final class Sincronizacao {
         return sb.toString();
     }
 
+    /** A soma de dois textos: as curtidas de ambos e, em cada playlist de mesmo nome, as músicas de ambos. */
+    public static String unir(String a, String b) {
+        Sincronizacao x = ler(a);
+        Sincronizacao y = ler(b);
+        Set<String> likes = new LinkedHashSet<>(x.curtidas);
+        likes.addAll(y.curtidas);
+        Map<String, List<String>> listas = new LinkedHashMap<>();
+        for (Map.Entry<String, List<String>> e : x.playlists.entrySet()) listas.put(e.getKey(), new ArrayList<>(e.getValue()));
+        for (Map.Entry<String, List<String>> e : y.playlists.entrySet()) {
+            List<String> alvo = listas.get(e.getKey());
+            if (alvo == null) {
+                alvo = new ArrayList<>();
+                listas.put(e.getKey(), alvo);
+            }
+            for (String k : e.getValue()) if (!alvo.contains(k)) alvo.add(k);
+        }
+        return montar(likes, listas);
+    }
+
     /** As musicas da playlist que existem na biblioteca, na ordem da playlist. */
     public static List<Faixa> faixasDaPlaylist(List<String> chaves, Map<String, Faixa> porChave) {
         List<Faixa> r = new ArrayList<>();

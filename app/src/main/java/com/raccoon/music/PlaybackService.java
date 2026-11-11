@@ -32,6 +32,9 @@ import java.util.List;
 public class PlaybackService extends MediaSessionService {
     private static final String ACAO_ALEATORIO = "com.raccoon.music.ALEATORIO";
     private static final String ACAO_REPETIR = "com.raccoon.music.REPETIR";
+    public static final String ACAO_WIDGET_ANTERIOR = "com.raccoon.music.W_ANTERIOR";
+    public static final String ACAO_WIDGET_TOCAR = "com.raccoon.music.W_TOCAR";
+    public static final String ACAO_WIDGET_PROXIMA = "com.raccoon.music.W_PROXIMA";
 
     /** Definido pela tela principal enquanto ela existe: o aleatorio é feito lá (reordena a fila pela ordem da biblioteca). */
     public static volatile Runnable aoAlternarAleatorio;
@@ -61,11 +64,51 @@ public class PlaybackService extends MediaSessionService {
                 prefs.repetir(modo);
                 redesenharBotoes();
             }
+
+            @Override
+            public void onMediaMetadataChanged(androidx.media3.common.MediaMetadata metadados) {
+                atualizarWidget();
+            }
+
+            @Override
+            public void onIsPlayingChanged(boolean tocando) {
+                atualizarWidget();
+            }
         });
         sessao = new MediaSession.Builder(this, player)
                 .setCallback(new Retorno())
                 .setCustomLayout(botoes())
                 .build();
+    }
+
+    /** Passa a música de agora e o estado (tocando ou pausado) ao widget da tela inicial. */
+    private void atualizarWidget() {
+        if (sessao == null) return;
+        Player p = sessao.getPlayer();
+        androidx.media3.common.MediaMetadata md = p.getMediaMetadata();
+        MusicaWidget.guardar(this, md.title == null ? "" : md.title.toString(), md.artist == null ? "" : md.artist.toString(), p.isPlaying());
+    }
+
+    /** Botões do widget: chegam como Intent de serviço, já que ele não tem como falar com a sessão de mídia. */
+    @Override
+    public int onStartCommand(Intent intent, int flags, int idDaTarefa) {
+        String acao = intent == null ? null : intent.getAction();
+        if (acao != null && acao.startsWith("com.raccoon.music.W_") && sessao != null) {
+            Player p = sessao.getPlayer();
+            if (p.getMediaItemCount() == 0) {
+                stopSelf();  // nada na fila: o app fechado não tem o que tocar
+                return START_NOT_STICKY;
+            }
+            if (ACAO_WIDGET_TOCAR.equals(acao)) {
+                if (p.isPlaying()) p.pause();
+                else p.play();
+            } else if (ACAO_WIDGET_PROXIMA.equals(acao)) {
+                p.seekToNextMediaItem();
+            } else if (ACAO_WIDGET_ANTERIOR.equals(acao)) {
+                p.seekToPreviousMediaItem();
+            }
+        }
+        return super.onStartCommand(intent, flags, idDaTarefa);
     }
 
     private ImmutableList<CommandButton> botoes() {

@@ -46,6 +46,10 @@ public final class Conta {
     }
 
     private static Resposta http(String metodo, String endereco, String token, String json) {
+        return http(metodo, endereco, token, json, null);
+    }
+
+    private static Resposta http(String metodo, String endereco, String token, String json, String prefer) {
         Resposta r = new Resposta();
         HttpURLConnection c = null;
         try {
@@ -56,6 +60,7 @@ public final class Conta {
             c.setRequestProperty("apikey", CHAVE);
             c.setRequestProperty("Authorization", "Bearer " + (token == null || token.isEmpty() ? CHAVE : token));
             c.setRequestProperty("Content-Type", "application/json");
+            if (prefer != null) c.setRequestProperty("Prefer", prefer);
             if (json != null) {
                 c.setDoOutput(true);
                 try (OutputStream out = c.getOutputStream()) {
@@ -156,6 +161,36 @@ public final class Conta {
             return acesso;
         } catch (Exception e) {
             return null;
+        }
+    }
+
+    private static final String TABELA_SINCRONIZACAO = "/rest/v1/sincronizacao_music";
+
+    /** O texto de curtidas e playlists guardado na conta: "" se ainda não há nada; null se não deu para falar com a conta. */
+    public static String baixarSincronizacao(Context c) {
+        String t = token(c);
+        if (t == null) return null;
+        Resposta r = http("GET", URL_BASE + TABELA_SINCRONIZACAO + "?select=dados", t, null);
+        if (r.status < 200 || r.status >= 300) return null;
+        try {
+            JSONArray linhas = new JSONArray(r.corpo);
+            return linhas.length() == 0 ? "" : linhas.getJSONObject(0).optString("dados", "");
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** Guarda na conta o texto de curtidas e playlists (soma de PC e celular). */
+    public static boolean enviarSincronizacao(Context c, String texto) {
+        String t = token(c);
+        if (t == null) return false;
+        try {
+            Resposta r = http("POST", URL_BASE + TABELA_SINCRONIZACAO + "?on_conflict=user_id", t,
+                    new JSONObject().put("dados", texto).put("atualizado_em", "now()").toString(),
+                    "resolution=merge-duplicates,return=minimal");
+            return r.status >= 200 && r.status < 300;
+        } catch (Exception e) {
+            return false;
         }
     }
 

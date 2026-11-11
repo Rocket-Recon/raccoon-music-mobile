@@ -33,6 +33,8 @@ public class BaixarService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, final int idDaTarefa) {
         criarCanal();
+        // o sistema pode ter encerrado o app no meio da fila: recoloca o que faltava
+        FilaDeDownload.restaurar(new Preferencias(this).filaDeDownload());
         Notification andamento = montar(tituloDoAndamento(), "Preparando…", true, 0, 0);
         if (Build.VERSION.SDK_INT >= 29) startForeground(ID_ANDAMENTO, andamento, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
         else startForeground(ID_ANDAMENTO, andamento);
@@ -60,6 +62,7 @@ public class BaixarService extends Service {
                 r = new Baixador.Resultado(false, "Não consegui baixar essa música.");
             }
             FilaDeDownload.concluir(item, r.ok, r.mensagem);
+            new Preferencias(this).filaDeDownload(FilaDeDownload.serializar());  // com o app fechado, só o serviço sabe o que já terminou
             synchronized (trava) {
                 if (r.ok) prontosNestaRodada++;
                 else falhasNestaRodada++;

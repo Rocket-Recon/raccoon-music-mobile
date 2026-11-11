@@ -202,8 +202,13 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle estado) {
         super.onCreate(estado);
         androidx.core.content.ContextCompat.registerReceiver(this, aoBaixar, new android.content.IntentFilter(BaixarService.ACAO_FIM), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED);
-        FilaDeDownload.ouvir(aoMudarFila);
         prefs = new Preferencias(this);
+        FilaDeDownload.ouvir(aoMudarFila);
+        int retomados = FilaDeDownload.restaurar(prefs.filaDeDownload());
+        if (retomados > 0 && prefs.arvore() != null) {
+            startServicoDeDownload();
+            Toast.makeText(this, "Retomando " + retomados + (retomados == 1 ? " download" : " downloads") + " que faltavam.", Toast.LENGTH_LONG).show();
+        }
         aplicarPaleta();
         historico = Historico.ler(prefs.historico());
         minhas = Playlists.ler(prefs.playlists());
@@ -1344,6 +1349,37 @@ public class MainActivity extends Activity {
             ui.post(() -> Toast.makeText(this, deu
                     ? "Enviado: " + plural(likes.size(), "curtida", "curtidas") + " e " + plural(locais.size(), "playlist", "playlists") + ". No PC: Celular > Trazer do celular."
                     : "Não consegui gravar na pasta. Se o pendrive estiver protegido, escolha a pasta de novo no menu.", Toast.LENGTH_LONG).show());
+        }).start();
+    }
+
+    /** Soma pela conta (sem pendrive) as curtidas e playlists do PC e daqui, nos dois sentidos. */
+    private void sincronizarComConta() {
+        if (!Conta.logado(this)) {
+            Toast.makeText(this, "Entre na sua conta primeiro.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Toast.makeText(this, "Sincronizando…", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            final String nuvem = Conta.baixarSincronizacao(this);
+            ui.post(() -> {
+                if (isFinishing()) return;
+                if (nuvem == null) {
+                    Toast.makeText(this, "Não consegui falar com a conta. Confira a internet e tente de novo.", Toast.LENGTH_LONG).show();
+                    return;
+                }
+                if (!nuvem.isEmpty()) {
+                    Biblioteca.guardarSincronizacao(this, nuvem);
+                    importarDoPc(nuvem);
+                    for (String nome : minhas.nomes()) sincronizacao.playlists.remove(nome);  // as daqui já têm lista própria
+                }
+                final Map<String, List<String>> locais = new java.util.LinkedHashMap<>();
+                for (String nome : minhas.nomes()) locais.put(nome, minhas.chaves(nome));
+                final String total = Sincronizacao.unir(Sincronizacao.montar(new java.util.LinkedHashSet<>(curtidas), locais), nuvem);
+                new Thread(() -> {
+                    final boolean deu = Conta.enviarSincronizacao(this, total);
+                    ui.post(() -> Toast.makeText(this, deu ? "Sincronizado com a conta." : "Não consegui enviar para a conta.", Toast.LENGTH_LONG).show());
+                }).start();
+            });
         }).start();
     }
 
@@ -3667,6 +3703,7 @@ public class MainActivity extends Activity {
         adicionarItem(itens, itemDoMenu("Fila de downloads", IconeView.DOWNLOAD, this::abrirFila));
         adicionarItem(itens, itemDoMenu("Baixar no PC", IconeView.COMPUTADOR, this::baixarNoPc));
         adicionarItem(itens, itemDoMenu("Enviar ao PC", IconeView.EXPORTAR, this::enviarAoPc));
+        adicionarItem(itens, itemDoMenu("Sincronizar com a conta", IconeView.COMPUTADOR, this::sincronizarComConta));
         adicionarItem(itens, itemDoMenu("Exportar músicas", IconeView.PASTA, this::escolherOrigemDaExportacao));
         adicionarTitulo(itens, "Ferramentas");
         adicionarItem(itens, itemDoMenu("Estatísticas", IconeView.ESTATISTICA, this::mostrarEstatisticas));
@@ -3798,6 +3835,7 @@ public class MainActivity extends Activity {
 
     /** Mantém o aviso "Fila · feitos/total" do cartão de download e a tela da fila em dia. */
     private final Runnable aoMudarFila = () -> ui.post(() -> {
+        if (prefs != null) prefs.filaDeDownload(FilaDeDownload.serializar());
         atualizarFilaInicio();
         if (redesenharFila != null) redesenharFila.run();
     });

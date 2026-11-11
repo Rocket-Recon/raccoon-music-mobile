@@ -142,6 +142,55 @@ public final class FilaDeDownload {
         avisar();
     }
 
+    private static String limpo(String t) {
+        return t == null ? "" : t.replace('\t', ' ').replace('\n', ' ').replace('\r', ' ');
+    }
+
+    /** O que precisa sobreviver ao fechar o app: o que falta baixar, o que estava baixando e os que deram erro. Uma linha por pedido. */
+    public static String serializar() {
+        StringBuilder sb = new StringBuilder();
+        synchronized (itens) {
+            for (Item i : itens) {
+                if (i.estado == OK) continue;
+                int estado = i.estado == ERRO ? ERRO : PENDENTE;
+                sb.append(estado).append('\t').append(i.taxa).append('\t').append(limpo(i.formato)).append('\t')
+                        .append(limpo(i.arvore)).append('\t').append(limpo(i.nome)).append('\t').append(limpo(i.entrada)).append('\n');
+            }
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Recoloca na fila o que foi guardado por serializar(). Só age com a fila vazia (não duplica). Devolve quantos
+     * ficaram esperando para baixar.
+     */
+    public static int restaurar(String texto) {
+        int pendentes = 0;
+        if (texto == null || texto.isEmpty()) return 0;
+        synchronized (itens) {
+            if (!itens.isEmpty()) return 0;
+            for (String linha : texto.split("\n")) {
+                String[] p = linha.split("\t", -1);
+                if (p.length != 6 || p[5].isEmpty()) continue;
+                int taxa;
+                int estado;
+                try {
+                    estado = Integer.parseInt(p[0]);
+                    taxa = Integer.parseInt(p[1]);
+                } catch (NumberFormatException e) {
+                    continue;
+                }
+                Item item = new Item(proximoId++, p[5], p[4], p[3], p[2], taxa);
+                item.estado = estado == ERRO ? ERRO : PENDENTE;
+                if (item.estado == ERRO) item.mensagem = "Não terminou antes de o app fechar.";
+                else pendentes++;
+                itens.add(item);
+            }
+        }
+        avisar();
+        return pendentes;
+    }
+
     /** Esvazia tudo (uso nos testes). */
     public static void zerar() {
         synchronized (itens) {
