@@ -55,8 +55,15 @@ public final class Preferencias {
     public String historico() { return sp.getString("historico", ""); }
     public void historico(String texto) { sp.edit().putString("historico", texto).apply(); }
 
-    public int ordem() { return sp.getInt("ordem", 0); }
-    public void ordem(int v) { sp.edit().putInt("ordem", v).apply(); }
+    /** 0 = banda, 1 = título, 2 = adicionadas recentemente (chave nova: a antiga tinha "mais longas" no meio). */
+    public int ordem() { return sp.getInt("ordem2", 0); }
+    public void ordem(int v) { sp.edit().putInt("ordem2", v).apply(); }
+    public boolean ordemInvertida() { return sp.getBoolean("ordem_invertida", false); }
+    public void ordemInvertida(boolean v) { sp.edit().putBoolean("ordem_invertida", v).apply(); }
+
+    /** Combinações de cores salvas (texto em linhas; veja Combinacoes). */
+    public String combinacoes() { return sp.getString("combinacoes", ""); }
+    public void combinacoes(String texto) { sp.edit().putString("combinacoes", texto).apply(); }
 
     public boolean embaralhar() { return sp.getBoolean("embaralhar", false); }
     public void embaralhar(boolean v) { sp.edit().putBoolean("embaralhar", v).apply(); }

@@ -86,7 +86,7 @@ public class MainActivity extends Activity {
     private Set<String> curtidas;
     private static final int SECAO_INICIO = 0, SECAO_MUSICAS = 1, SECAO_ARTISTAS = 2, SECAO_ALBUNS = 3, SECAO_GENEROS = 4, SECAO_PLAYLISTS = 5,
             SECAO_CURTIDAS = 6, SECAO_RECENTES = 7, SECAO_MAIS = 8, SECAO_COLECAO = 9;
-    private static final String[] NOMES_SECAO = {"Início", "Músicas", "Artistas", "Álbuns", "Gêneros", "Playlists", "Curtidas", "Tocadas recentemente", "Mais tocadas", "Lista"};
+    private static final String[] NOMES_SECAO = {"Início", "Biblioteca", "Artistas", "Álbuns", "Gêneros", "Playlists", "Curtidas", "Tocadas recentemente", "Mais tocadas", "Lista"};
     private static final int SECOES_NO_MENU = 9;
     private int secao = SECAO_INICIO;
     private int secaoAnterior = SECAO_INICIO;
@@ -151,6 +151,8 @@ public class MainActivity extends Activity {
     private ImageView capaMini;
     private IconeView notaMini, notaGrande, icPlayMini, icProximaMini, icMenu, icLetra;
     private FrameLayout celulaMais, celulaAleatorio;
+    private LinearLayout linhaControles;
+    private TextView bSeta;
     private TextView btnVazio, bOrdem, bFiltro, lblGaveta;
     private int filtroMusicas = 0;  // 0 todas, 1 curtidas, 2 nunca tocadas, 3 já tocadas
     private FrameLayout limparBusca;
@@ -466,8 +468,9 @@ public class MainActivity extends Activity {
                 }
                 visiveis = passam;
             }
-            if ((secao == SECAO_MUSICAS || secao == SECAO_CURTIDAS) && prefs.ordem() != 0) {
-                visiveis = Catalogo.ordenarPor(visiveis, prefs.ordem(), f -> etiquetas.duracao(f.uri));
+            if ((secao == SECAO_MUSICAS || secao == SECAO_CURTIDAS) && (prefs.ordem() != 0 || prefs.ordemInvertida())) {
+                visiveis = Catalogo.ordenarPor(visiveis, MODO_DA_ORDEM[Math.max(0, Math.min(prefs.ordem(), MODO_DA_ORDEM.length - 1))], f -> etiquetas.duracao(f.uri));
+                if (prefs.ordemInvertida()) java.util.Collections.reverse(visiveis);
             }
         }
         if (adaptador != null) adaptador.notifyDataSetChanged();
@@ -682,12 +685,19 @@ public class MainActivity extends Activity {
         }
     }
 
-    private static final String[] ORDENS_CURTAS = {"banda", "título", "duração", "recentes"};
+    /** Modo de Catalogo.ordenarPor para cada ordem do menu: banda, título e adicionadas recentemente. */
+    private static final int[] MODO_DA_ORDEM = {0, 1, 3};
+    private static final String[] ORDENS_CURTAS = {"banda", "título", "recentes"};
     private static final String[] NOMES_FILTRO = {"Todas", "Curtidas", "Nunca tocadas", "Já tocadas"};
 
     /** Escreve nos dois botões da barra a ordem e o filtro de agora. */
     private void rotularBarra() {
         if (bOrdem != null) bOrdem.setText("Ordem: " + ORDENS_CURTAS[Math.max(0, Math.min(prefs.ordem(), ORDENS_CURTAS.length - 1))]);
+        if (bSeta != null) {
+            boolean naturalDecrescente = prefs.ordem() == 2;  // adicionadas recentemente: as mais novas primeiro
+            boolean decrescente = naturalDecrescente != prefs.ordemInvertida();
+            bSeta.setText(decrescente ? "↓" : "↑");
+        }
         if (bFiltro != null) {
             bFiltro.setText(filtroMusicas == 0 ? "Filtrar" : NOMES_FILTRO[filtroMusicas]);
             bFiltro.setBackground(toque(forma(filtroMusicas == 0 ? CARTAO : ACENTO, 24, TEXTO), forma(0xFF000000, 24, 0)));
@@ -708,7 +718,7 @@ public class MainActivity extends Activity {
     }
 
     private void menuOrdenar() {
-        String[] nomes = {"Por banda", "Por título", "Mais longas primeiro", "Adicionadas recentemente"};
+        String[] nomes = {"Por banda", "Por título", "Adicionadas recentemente"};
         new Construtor()
                 .setTitle("Ordenar por")
                 .setSingleChoiceItems(nomes, prefs.ordem(), (d, qual) -> {
@@ -890,10 +900,7 @@ public class MainActivity extends Activity {
         CharSequence titulo = f != null ? f.titulo : player.getMediaMetadata().title;
         CharSequence artista = f != null ? f.artista : player.getMediaMetadata().artist;
         lblTitulo.setText(titulo == null ? "" : titulo);
-        Etiquetas.Info inf = f == null ? null : etiquetas.de(f.uri);
-        String album = inf == null || inf.album == null ? "" : inf.album;
         String linhaArtista = artista == null ? "" : artista.toString();
-        if (!album.isEmpty()) linhaArtista = linhaArtista.isEmpty() ? album : linhaArtista + "  ·  " + album;
         lblArtista.setText(linhaArtista);
         lblProxima.setVisibility(View.GONE);
         lblTituloMini.setText(titulo == null ? "" : titulo);
@@ -1597,6 +1604,7 @@ public class MainActivity extends Activity {
         letraAberta = !letraAberta;
         blocoLetra.setVisibility(letraAberta ? View.VISIBLE : View.GONE);
         caixaDaCapa.setVisibility(letraAberta ? View.GONE : View.VISIBLE);
+        if (linhaControles != null) linhaControles.setVisibility(letraAberta ? View.GONE : View.VISIBLE);  // com a letra aberta, o espaço dos botões vai para o texto
         icLetra.definir(IconeView.LETRA, letraAberta ? ACENTO : ICONE);
         telaTocando.setKeepScreenOn(letraAberta);  // lendo a letra, a tela nao apaga
         ajustarTopoDoPlayer();
@@ -2515,7 +2523,11 @@ public class MainActivity extends Activity {
         c.setPadding(dp(16), dp(2), dp(16), dp(28));
         if (cartaoBaixar == null) cartaoBaixar = montarCartaoBaixar();
         LinearLayout.LayoutParams pb = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        pb.setMargins(0, dp(4), 0, dp(12));
+        pb.setMargins(0, 0, 0, dp(12));
+        TextView principais = texto(18, TEXTO, true);
+        principais.setText("Principais recursos");
+        principais.setPadding(dp(2), dp(8), 0, dp(10));
+        c.addView(principais);
         c.addView(cartaoBaixar, pb);
 
         LinearLayout resumo = new LinearLayout(this);
@@ -2550,6 +2562,26 @@ public class MainActivity extends Activity {
                 escolher.setTextColor(0xFFFFFFFF);
                 c.addView(escolher, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)));
             }
+        }
+        if (!todas.isEmpty()) {
+            LinearLayout atalhoBiblioteca = new LinearLayout(this);
+            atalhoBiblioteca.setGravity(Gravity.CENTER_VERTICAL);
+            atalhoBiblioteca.setPadding(dp(14), 0, dp(14), 0);
+            atalhoBiblioteca.setBackground(toque(forma(CARTAO, 14, LINHA), forma(0xFF000000, 14, 0)));
+            IconeView icBiblioteca = new IconeView(this, IconeView.NOTA);
+            icBiblioteca.definir(IconeView.NOTA, ACENTO);
+            atalhoBiblioteca.addView(icBiblioteca, new LinearLayout.LayoutParams(dp(22), dp(22)));
+            TextView nomeBiblioteca = texto(16, TEXTO, true);
+            nomeBiblioteca.setText("Biblioteca");
+            nomeBiblioteca.setPadding(dp(12), 0, 0, 0);
+            atalhoBiblioteca.addView(nomeBiblioteca, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            TextView quantas = texto(13, SUAVE, false);
+            quantas.setText(plural(todas.size(), "música", "músicas") + "  ›");
+            atalhoBiblioteca.addView(quantas);
+            atalhoBiblioteca.setOnClickListener(v -> irPara(SECAO_MUSICAS));
+            LinearLayout.LayoutParams pab = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52));
+            pab.setMargins(0, dp(14), 0, 0);
+            c.addView(atalhoBiblioteca, pab);
         }
         Set<String> mostradas = new java.util.HashSet<>();
         carrosselDoInicio(c, "Tocadas recentemente", semRepetidas(historico.recentes(todas, 15), mostradas), SECAO_RECENTES);
@@ -2701,6 +2733,7 @@ public class MainActivity extends Activity {
     private void atualizarCabecalho() {
         icMenu.definir(secao == SECAO_COLECAO ? IconeView.SETA : IconeView.MENU, TEXTO);
         celulaMais.setVisibility(secao == SECAO_PLAYLISTS ? View.VISIBLE : View.GONE);
+        if (caixaDaBusca != null) caixaDaBusca.setVisibility(secao == SECAO_INICIO ? View.GONE : View.VISIBLE);
         celulaAleatorio.setVisibility(todas.isEmpty() || (secao != SECAO_MUSICAS && secao != SECAO_CURTIDAS) ? View.GONE : View.VISIBLE);
         if (bFiltro != null) bFiltro.setVisibility(secao == SECAO_MUSICAS ? View.VISIBLE : View.GONE);
         if (secao == SECAO_INICIO) lblSecao.setText(Conta.logado(this) && !Conta.usuario(this).isEmpty() ? "Olá, " + Conta.usuario(this) : saudacao());
@@ -2814,6 +2847,96 @@ public class MainActivity extends Activity {
         return g;
     }
 
+    /** Padrões prontos (os do PC) e as combinações salvas pela pessoa, como botões que aplicam fundo e destaque juntos. */
+    private void adicionarCombinacoes(LinearLayout col, final AlertDialog dialogo) {
+        TextView rotulo = texto(14, SUAVE, true);
+        rotulo.setText("Padrões prontos");
+        rotulo.setPadding(0, dp(4), 0, dp(6));
+        col.addView(rotulo);
+        linhasDeCombinacoes(col, dialogo, java.util.Arrays.asList(Combinacoes.PRONTAS), false);
+        List<Combinacoes.Item> minhasCores = Combinacoes.ler(prefs.combinacoes());
+        if (!minhasCores.isEmpty()) {
+            TextView meus = texto(14, SUAVE, true);
+            meus.setText("Minhas combinações (segure para apagar)");
+            meus.setPadding(0, dp(14), 0, dp(6));
+            col.addView(meus);
+            linhasDeCombinacoes(col, dialogo, minhasCores, true);
+        }
+        TextView separador = texto(14, SUAVE, true);
+        separador.setText("Ajuste fino");
+        separador.setPadding(0, dp(18), 0, dp(2));
+        col.addView(separador);
+    }
+
+    private void linhasDeCombinacoes(LinearLayout col, final AlertDialog dialogo, List<Combinacoes.Item> itens, final boolean apagaveis) {
+        int fundoAtual = (prefs.corFundo() == 0 ? Cores.PADRAO_FUNDO : prefs.corFundo()) & 0xFFFFFF;
+        int acentoAtual = (prefs.corAcento() == 0 ? Cores.PADRAO_ACENTO : prefs.corAcento()) & 0xFFFFFF;
+        LinearLayout linha = null;
+        for (int i = 0; i < itens.size(); i++) {
+            if (i % 3 == 0) {
+                linha = new LinearLayout(this);
+                col.addView(linha);
+            }
+            final Combinacoes.Item c = itens.get(i);
+            LinearLayout chip = new LinearLayout(this);
+            chip.setGravity(Gravity.CENTER);
+            boolean marcada = (c.fundo & 0xFFFFFF) == fundoAtual && (c.acento & 0xFFFFFF) == acentoAtual;
+            chip.setBackground(forma(c.fundo, 14, marcada ? TEXTO : LINHA));
+            View ponto = new View(this);
+            ponto.setBackground(bolinha(c.acento, false));
+            chip.addView(ponto, new LinearLayout.LayoutParams(dp(14), dp(14)));
+            TextView nome = texto(13, Cores.luminancia(c.fundo) > 0.5 ? 0xFF18181B : 0xFFFFFFFF, marcada);
+            nome.setText(c.nome);
+            nome.setSingleLine(true);
+            nome.setEllipsize(TextUtils.TruncateAt.END);
+            nome.setPadding(dp(6), 0, 0, 0);
+            chip.addView(nome);
+            chip.setOnClickListener(v -> {
+                prefs.cores(c.fundo, c.acento);
+                dialogo.dismiss();
+                recreate();
+            });
+            if (apagaveis) {
+                chip.setOnLongClickListener(v -> {
+                    List<Combinacoes.Item> todasSalvas = Combinacoes.ler(prefs.combinacoes());
+                    Combinacoes.remover(todasSalvas, c.nome);
+                    prefs.combinacoes(Combinacoes.serializar(todasSalvas));
+                    dialogo.dismiss();
+                    escolherCores();
+                    return true;
+                });
+            }
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, dp(42), 1f);
+            p.setMargins(dp(3), dp(3), dp(3), dp(3));
+            linha.addView(chip, p);
+        }
+        int resto = itens.size() % 3;
+        for (int i = 0; resto != 0 && i < 3 - resto; i++) linha.addView(new View(this), new LinearLayout.LayoutParams(0, dp(42), 1f));
+    }
+
+    /** Guarda o fundo e o destaque de agora com um nome, para voltar a eles depois. */
+    private void salvarCombinacaoAtual() {
+        final EditText campo = campoDeTexto("");
+        campo.setHint("Nome da combinação");
+        new Construtor()
+                .setTitle("Salvar combinação")
+                .setView(caixaDoCampo(campo))
+                .setPositiveButton("Salvar", (d, q) -> {
+                    String nome = Combinacoes.limparNome(campo.getText().toString());
+                    if (nome.isEmpty()) {
+                        Toast.makeText(this, "Escreva um nome.", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    List<Combinacoes.Item> salvas = Combinacoes.ler(prefs.combinacoes());
+                    Combinacoes.salvar(salvas, nome, prefs.corFundo() == 0 ? Cores.PADRAO_FUNDO : prefs.corFundo(), prefs.corAcento() == 0 ? Cores.PADRAO_ACENTO : prefs.corAcento());
+                    prefs.combinacoes(Combinacoes.serializar(salvas));
+                    Toast.makeText(this, "Combinação salva", Toast.LENGTH_SHORT).show();
+                    escolherCores();
+                })
+                .setNegativeButton("Cancelar", (d, q) -> escolherCores())
+                .show();
+    }
+
     private void escolherCores() {
         final ScrollView rolagem = new ScrollView(this);
         final LinearLayout col = new LinearLayout(this);
@@ -2821,12 +2944,14 @@ public class MainActivity extends Activity {
         col.setPadding(dp(20), dp(8), dp(20), dp(8));
         rolagem.addView(col);
         final AlertDialog dialogo = new Construtor().setTitle("Aparência").setView(rolagem)
-                .setNegativeButton("Padrão", (d, q) -> {
+                .setNegativeButton("Restaurar", (d, q) -> {
                     prefs.cores(0, 0);
                     recreate();
                 })
+                .setNeutralButton("Salvar", (d, q) -> salvarCombinacaoAtual())
                 .setPositiveButton("Fechar", null)
                 .create();
+        adicionarCombinacoes(col, dialogo);
         for (int bloco = 0; bloco < 2; bloco++) {
             final boolean fundo = bloco == 0;
             TextView rotulo = texto(14, SUAVE, true);
@@ -3074,12 +3199,20 @@ public class MainActivity extends Activity {
         pilulasDaBarra = pilulas;
         pilulas.setGravity(Gravity.CENTER_VERTICAL);
         bOrdem = botao("Ordem", false, this::menuOrdenar);
+        bSeta = botao("↑", false, () -> {
+            prefs.ordemInvertida(!prefs.ordemInvertida());
+            aplicarFiltro();
+            if (lista != null) lista.setSelection(0);
+        });
         bFiltro = botao("Filtrar", false, this::menuFiltrar);
         LinearLayout.LayoutParams po = new LinearLayout.LayoutParams(0, dp(42), 1f);
         po.setMargins(0, 0, dp(5), 0);
         LinearLayout.LayoutParams pf = new LinearLayout.LayoutParams(0, dp(42), 1f);
         pf.setMargins(dp(5), 0, 0, 0);
+        ps.setMargins(dp(2), 0, dp(2), 0);
         pilulas.addView(bOrdem, po);
+        LinearLayout.LayoutParams ps = new LinearLayout.LayoutParams(dp(46), dp(42));
+        pilulas.addView(bSeta, ps);
         pilulas.addView(bFiltro, pf);
         celulaAleatorio.addView(pilulas, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         barraSelecao = montarBarraDeSelecao();
@@ -3410,6 +3543,7 @@ public class MainActivity extends Activity {
             if (central) p.setMargins(dp(8), 0, dp(8), 0);
             controles.addView(c, p);
         }
+        linhaControles = controles;
         col.addView(controles);
 
         LinearLayout acoes = new LinearLayout(this);
@@ -3521,7 +3655,7 @@ public class MainActivity extends Activity {
         ScrollView rolagem = new ScrollView(this);
         LinearLayout itens = new LinearLayout(this);
         itens.setOrientation(LinearLayout.VERTICAL);
-        adicionarTitulo(itens, "Biblioteca");
+        adicionarTitulo(itens, "Explorar");
         for (int i = 0; i < SECOES_NO_MENU; i++) {
             final int destino = i;
             if (i == SECAO_ARTISTAS) adicionarTitulo(itens, "Listas");
@@ -4027,13 +4161,13 @@ public class MainActivity extends Activity {
         perguntar.setChecked(prefs.baixarPerguntarNome());
         perguntar.setOnCheckedChangeListener((v, marcado) -> prefs.baixarPerguntarNome(marcado));
         final TextView atualizarBaixador = linhaDeAjuste();
-        atualizarBaixador.setText("Atualizar o baixador");
+        atualizarBaixador.setText("Atualizar o download");
         atualizarBaixador.setOnClickListener(v -> {
             Toast.makeText(this, "Atualizando o baixador…", Toast.LENGTH_SHORT).show();
             new Thread(() -> {
                 final boolean deu = Baixador.atualizarAgora(this);
                 ui.post(() -> {
-                    if (!isFinishing()) Toast.makeText(this, deu ? "Baixador atualizado." : "Não consegui atualizar agora. Confira a internet.", Toast.LENGTH_LONG).show();
+                    if (!isFinishing()) Toast.makeText(this, deu ? "Download atualizado." : "Não consegui atualizar agora. Confira a internet.", Toast.LENGTH_LONG).show();
                 });
             }).start();
         });
