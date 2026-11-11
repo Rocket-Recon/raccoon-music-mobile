@@ -43,7 +43,15 @@ public final class Etiquetas {
     /** Genero que o arquivo traz so como numero, como "(13)" ou "13", nao serve para nada: vira vazio. */
     public static String generoLegivel(String g) {
         String s = limpo(g);
-        return s.matches("[()\\d\\s]*") ? "" : s;
+        if (s.matches("[()\\d\\s]*")) return "";
+        // "Music" é só a categoria do YouTube, não um gênero
+        return s.equalsIgnoreCase("music") || s.equalsIgnoreCase("musica") ? "" : s;
+    }
+
+    /** Só o ano ("20081129" e "2008-11-29" viram "2008"); "" quando não há um ano. */
+    public static String anoLegivel(String a) {
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("(?<!\\d)(19|20)\\d{2}(?!\\d)|^(19|20)\\d{2}").matcher(limpo(a));
+        return m.find() ? m.group().substring(0, 4) : "";
     }
 
     /** Agrupa as musicas pelo album (ou genero), em ordem alfabetica. Chave do mapa: nome normalizado; valor: musicas. */

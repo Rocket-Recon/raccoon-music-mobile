@@ -13,6 +13,8 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.lang.reflect.Method;
@@ -125,7 +127,7 @@ public final class Baixador {
         long quando;
     }
 
-    private static Info ultimaInfo;
+    private static final java.util.Map<String, Info> infos = new java.util.concurrent.ConcurrentHashMap<>();
 
     private static String campo(JSONObject o, String chave) {
         if (o.isNull(chave)) return "NA";
@@ -133,11 +135,10 @@ public final class Baixador {
         return v.isEmpty() ? "NA" : v;
     }
 
-    private static synchronized Info obterInfo(Context contexto, String entrada) {
+    private static Info obterInfo(Context contexto, String entrada) {
         long agora = System.currentTimeMillis();
-        if (ultimaInfo != null && ultimaInfo.entrada.equals(entrada) && agora - ultimaInfo.quando < 15 * 60 * 1000L && !ultimaInfo.json.isEmpty()) {
-            return ultimaInfo;
-        }
+        Info guardada = infos.get(entrada);
+        if (guardada != null && agora - guardada.quando < 15 * 60 * 1000L && !guardada.json.isEmpty()) return guardada;
         Info info = new Info();
         info.entrada = entrada;
         info.quando = agora;
@@ -161,8 +162,48 @@ public final class Baixador {
         } catch (Exception e) {
             info.json = "";
         }
-        if (!info.json.isEmpty()) ultimaInfo = info;
+        if (!info.json.isEmpty()) {
+            if (infos.size() > 40) infos.clear();
+            infos.put(entrada, info);
+        }
         return info;
+    }
+
+    /** Uma música de uma playlist: o endereço e o título que o YouTube mostra. */
+    public static final class Entrada {
+        public final String url;
+        public final String titulo;
+
+        Entrada(String url, String titulo) {
+            this.url = url;
+            this.titulo = titulo;
+        }
+    }
+
+    /** As músicas de um link de playlist (até 300), sem baixar nada; lista vazia se não deu. Chamar fora da thread da tela. */
+    public static List<Entrada> expandirPlaylist(Context contexto, String link) {
+        List<Entrada> r = new ArrayList<>();
+        if (!iniciar(contexto)) return r;
+        try {
+            YoutubeDLRequest pedido = new YoutubeDLRequest(link);
+            pedido.addOption("--flat-playlist");
+            pedido.addOption("--dump-json");
+            pedido.addOption("--playlist-end", "300");
+            for (String linha : executar(contexto, pedido).split("\\r?\\n")) {
+                String l = linha.trim();
+                if (!l.startsWith("{")) continue;
+                JSONObject o = new JSONObject(l);
+                String url = o.isNull("url") ? "" : o.optString("url", "");
+                if (url.isEmpty() && !o.isNull("id")) url = "https://www.youtube.com/watch?v=" + o.optString("id", "");
+                if (url.isEmpty()) continue;
+                String titulo = o.isNull("title") ? "" : o.optString("title", "");
+                if (titulo.equals("[Private video]") || titulo.equals("[Deleted video]")) continue;
+                r.add(new Entrada(url, titulo));
+            }
+        } catch (Exception e) {
+            // sem a lista: quem chamou avisa
+        }
+        return r;
     }
 
     private static String artistaDe(String[] d) {
@@ -197,7 +238,7 @@ public final class Baixador {
         String entrada = Pedido.entrada(texto);
         if (entrada.isEmpty()) return new Resultado(false, "Escreva um link ou o nome da música.");
         if (!iniciar(contexto)) return new Resultado(false, "O baixador não iniciou neste aparelho.");
-        File temporaria = new File(contexto.getCacheDir(), "baixando");
+        File temporaria = new File(contexto.getCacheDir(), "baixando/" + System.nanoTime());  // uma pasta por download: dois podem rodar juntos
         limpar(temporaria);
         if (!temporaria.mkdirs() && !temporaria.isDirectory()) return new Resultado(false, "Sem espaço para baixar.");
         try {
@@ -231,6 +272,10 @@ public final class Baixador {
                     if (reaproveita) {
                         // os dados já extraídos são reaproveitados (com a capa oficial no lugar da miniatura do vídeo)
                         JSONObject o = new JSONObject(info.json);
+                        // data de envio, categoria ("Music"), tags e descrição do vídeo não são dados da música
+                        for (String chave : new String[] {"upload_date", "release_date", "release_year", "release_timestamp", "timestamp", "categories", "genres", "genre", "tags", "description"}) {
+                            o.remove(chave);
+                        }
                         if (oficial != null && !oficial.capa.isEmpty()) {
                             o.put("thumbnail", oficial.capa);
                             o.put("thumbnails", new JSONArray().put(new JSONObject().put("url", oficial.capa).put("id", "0")));
@@ -248,6 +293,7 @@ public final class Baixador {
                     pedido.addOption("--concurrent-fragments", "4");
                     pedido.addOption("--no-mtime");
                     String tags = etiqueta("title", tituloTag) + etiqueta("artist", artistaTag);
+                    if (oficial == null) tags += " -metadata genre= -metadata date=";
                     if (oficial != null) tags += etiqueta("album", oficial.album) + etiqueta("album_artist", artistaTag) + etiqueta("genre", oficial.genero) + etiqueta("date", oficial.ano);
                     if (!tags.isEmpty()) pedido.addOption("--postprocessor-args", "ffmpeg:" + tags.trim());
                     if (reaproveita) {

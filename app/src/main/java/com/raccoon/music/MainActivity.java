@@ -156,7 +156,10 @@ public class MainActivity extends Activity {
     private FrameLayout limparBusca;
     private View telaTocando;
     private LetraView letraView;
-    private LinearLayout blocoLetra, linhaAjusteLetra;
+    private LinearLayout blocoLetra, linhaAjusteLetra, linhaDoTitulo;
+    private TextView tituloTopo;
+    private IconeView icCurtirTopo;
+    private FrameLayout celulaCurtirTopo;
     private FrameLayout caixaDaCapa;
     private EditText edtBusca;
     private ListView lista;
@@ -197,6 +200,7 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle estado) {
         super.onCreate(estado);
         androidx.core.content.ContextCompat.registerReceiver(this, aoBaixar, new android.content.IntentFilter(BaixarService.ACAO_FIM), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED);
+        FilaDeDownload.ouvir(aoMudarFila);
         prefs = new Preferencias(this);
         aplicarPaleta();
         historico = Historico.ler(prefs.historico());
@@ -280,6 +284,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         PlaybackService.aoAlternarAleatorio = null;
+        FilaDeDownload.naoOuvir(aoMudarFila);
         try {
             unregisterReceiver(aoBaixar);
         } catch (Exception jaSolto) {
@@ -366,6 +371,7 @@ public class MainActivity extends Activity {
             if (!porChave.containsKey(faixas.get(i).chave)) porChave.put(faixas.get(i).chave, faixas.get(i));
             posicao.put(faixas.get(i).uri, i);
         }
+        tirarDaFilaOQueSumiu();
         aplicarFiltro();
         atualizarCabecalho();
         if (lblGaveta != null) lblGaveta.setText(faixas.size() == 1 ? "1 música" : faixas.size() + " músicas");
@@ -373,6 +379,18 @@ public class MainActivity extends Activity {
         executarAtalho();
         atualizarPlayer();
         iniciarIndexacao();
+    }
+
+    /** Músicas apagadas ou que sumiram da pasta saem da fila do player (o arquivo aberto continuaria tocando). */
+    private void tirarDaFilaOQueSumiu() {
+        if (player == null || !player.isConnected()) return;
+        for (int i = player.getMediaItemCount() - 1; i >= 0; i--) {
+            if (!porUri.containsKey(player.getMediaItemAt(i).mediaId)) player.removeMediaItem(i);
+        }
+        if (player.getMediaItemCount() == 0) {
+            player.stop();
+            player.clearMediaItems();
+        }
     }
 
     private List<Faixa> faixasBase() {
@@ -460,8 +478,8 @@ public class MainActivity extends Activity {
             lista.setVisibility(!naInicio && !modoGrade() ? View.VISIBLE : View.GONE);
         }
         if (inicio != null) {
-            inicio.setVisibility(naInicio && !todas.isEmpty() ? View.VISIBLE : View.GONE);
-            if (naInicio && !todas.isEmpty()) montarConteudoInicio();
+            inicio.setVisibility(naInicio ? View.VISIBLE : View.GONE);
+            if (naInicio) montarConteudoInicio();
         }
         atualizarContagem();
         atualizarVazio();
@@ -496,9 +514,16 @@ public class MainActivity extends Activity {
 
     private void atualizarVazio() {
         if (lblVazio == null) return;
+        boolean semBusca = edtBusca == null || edtBusca.getText().length() == 0;
+        if (secao == SECAO_INICIO && semBusca) {
+            // a página inicial tem o próprio aviso de biblioteca vazia e continua igual com ou sem músicas
+            lblVazio.setVisibility(View.GONE);
+            if (btnVazio != null) btnVazio.setVisibility(View.GONE);
+            if (todas.isEmpty() && inicio != null && inicio.getVisibility() == View.VISIBLE) montarConteudoInicio();
+            return;
+        }
         if (btnVazio != null) btnVazio.setVisibility(todas.isEmpty() && !varrendo ? View.VISIBLE : View.GONE);
         boolean vazia = modoGrupos() ? grupos.isEmpty() : visiveis.isEmpty();
-        boolean semBusca = edtBusca == null || edtBusca.getText().length() == 0;
         if (varrendo && todas.isEmpty()) {
             lblVazio.setText(achadasAgora > 0 ? "Procurando músicas… " + achadasAgora : "Procurando músicas…");
             lblVazio.setVisibility(View.VISIBLE);
@@ -855,6 +880,7 @@ public class MainActivity extends Activity {
             lblTitulo.setText("Nada tocando");
             lblArtista.setText("");
             uriAtual = "";
+            ajustarTopoDoPlayer();
             icCurtir.setVisibility(View.INVISIBLE);
             atualizarCapas(null, null);
             return;
@@ -878,6 +904,7 @@ public class MainActivity extends Activity {
             icCurtir.definir(curtidas.contains(f.chave) ? IconeView.CORACAO_CHEIO : IconeView.CORACAO, curtidas.contains(f.chave) ? ACENTO : ICONE);
         }
         atualizarCapas(f, player.getMediaMetadata().artworkData);
+        ajustarTopoDoPlayer();
         if (letraAberta && !mi.mediaId.equals(letraDe)) carregarLetraAtual();
         adaptador.notifyDataSetChanged();  // destaca a musica que toca na lista
     }
@@ -1019,6 +1046,8 @@ public class MainActivity extends Activity {
         final boolean curtida = curtidas.contains(f.chave);
         final List<String> nomes = new ArrayList<>();
         final List<Runnable> acoes = new ArrayList<>();
+        nomes.add("Selecionar");
+        acoes.add(() -> iniciarSelecao(f));
         nomes.add("Letra");
         acoes.add(() -> mostrarLetra(f));
         nomes.add("Mostrar na lista");
@@ -1540,7 +1569,7 @@ public class MainActivity extends Activity {
         if (inf != null) {
             linhaDeInfo(col, "Álbum", inf.album);
             linhaDeInfo(col, "Gênero", Etiquetas.generoLegivel(inf.genero == null ? "" : inf.genero));
-            linhaDeInfo(col, "Ano", inf.ano);
+            linhaDeInfo(col, "Ano", Etiquetas.anoLegivel(inf.ano));
             linhaDeInfo(col, "Duração", inf.duracaoMs > 0 ? formatar(inf.duracaoMs) : "");
         }
         linhaDeInfo(col, "Reproduções", vezes == 0 ? "Ainda não tocou" : plural(vezes, "vez", "vezes"));
@@ -1549,12 +1578,28 @@ public class MainActivity extends Activity {
         new Construtor().setTitle("Informações").setView(rolagem).setPositiveButton("Fechar", null).show();
     }
 
+    /** Com a letra aberta, "Banda - Título" vai para o topo (e o coração junto) e o espaço da linha do título volta para a letra. */
+    private void ajustarTopoDoPlayer() {
+        if (tituloTopo == null) return;
+        Faixa f = faixaAtual();
+        String nome = "Tocando agora";
+        if (letraAberta && f != null) nome = f.artista.isEmpty() ? f.titulo : f.artista + " - " + f.titulo;
+        tituloTopo.setText(nome);
+        tituloTopo.setTextColor(letraAberta ? TEXTO : SUAVE);
+        tituloTopo.setSelected(true);
+        linhaDoTitulo.setVisibility(letraAberta ? View.GONE : View.VISIBLE);
+        celulaCurtirTopo.setVisibility(letraAberta ? View.VISIBLE : View.GONE);
+        icCurtirTopo.setVisibility(letraAberta ? View.VISIBLE : View.GONE);
+        if (f != null) icCurtirTopo.definir(curtidas.contains(f.chave) ? IconeView.CORACAO_CHEIO : IconeView.CORACAO, curtidas.contains(f.chave) ? ACENTO : ICONE);
+    }
+
     private void alternarLetra() {
         letraAberta = !letraAberta;
         blocoLetra.setVisibility(letraAberta ? View.VISIBLE : View.GONE);
         caixaDaCapa.setVisibility(letraAberta ? View.GONE : View.VISIBLE);
         icLetra.definir(IconeView.LETRA, letraAberta ? ACENTO : ICONE);
         telaTocando.setKeepScreenOn(letraAberta);  // lendo a letra, a tela nao apaga
+        ajustarTopoDoPlayer();
         ui.removeCallbacks(seguirLetra);
         if (letraAberta) {
             carregarLetraAtual();
@@ -1815,6 +1860,298 @@ public class MainActivity extends Activity {
         new Construtor().setTitle("Estatísticas").setView(rolagem).setPositiveButton("Fechar", null).show();
     }
 
+    // ------------------------------------------------------------------ selecao de varias musicas
+    private boolean selecionando;
+    private final Set<String> marcadas = new java.util.LinkedHashSet<>();
+    private LinearLayout barraSelecao;
+    private LinearLayout pilulasDaBarra;
+    private TextView lblSelecao;
+
+    private void iniciarSelecao(Faixa f) {
+        selecionando = true;
+        marcadas.clear();
+        marcadas.add(f.uri);
+        atualizarSelecao();
+    }
+
+    private void alternarMarca(Faixa f) {
+        if (!marcadas.remove(f.uri)) marcadas.add(f.uri);
+        if (marcadas.isEmpty()) terminarSelecao();
+        else atualizarSelecao();
+    }
+
+    private void terminarSelecao() {
+        selecionando = false;
+        marcadas.clear();
+        atualizarSelecao();
+    }
+
+    private void atualizarSelecao() {
+        if (barraSelecao != null) barraSelecao.setVisibility(selecionando ? View.VISIBLE : View.GONE);
+        if (pilulasDaBarra != null) pilulasDaBarra.setVisibility(selecionando ? View.GONE : View.VISIBLE);
+        if (lblSelecao != null) lblSelecao.setText(marcadas.size() + (marcadas.size() == 1 ? " selecionada" : " selecionadas"));
+        if (adaptador != null) adaptador.notifyDataSetChanged();
+    }
+
+    /** As músicas marcadas, na ordem da biblioteca. */
+    private List<Faixa> selecionadas() {
+        List<Faixa> r = new ArrayList<>();
+        for (Faixa f : todas) if (marcadas.contains(f.uri)) r.add(f);
+        return r;
+    }
+
+    private LinearLayout montarBarraDeSelecao() {
+        LinearLayout barra = new LinearLayout(this);
+        barra.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout topo = new LinearLayout(this);
+        topo.setGravity(Gravity.CENTER_VERTICAL);
+        FrameLayout fechar = new FrameLayout(this);
+        IconeView x = new IconeView(this, IconeView.FECHAR);
+        x.definir(IconeView.FECHAR, TEXTO);
+        fechar.addView(x, new FrameLayout.LayoutParams(dp(18), dp(18), Gravity.CENTER));
+        fechar.setOnClickListener(v -> terminarSelecao());
+        topo.addView(fechar, new LinearLayout.LayoutParams(dp(40), dp(40)));
+        lblSelecao = texto(15, TEXTO, true);
+        topo.addView(lblSelecao, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView todasMarcadas = texto(14, ACENTO, true);
+        todasMarcadas.setText("Todas");
+        todasMarcadas.setPadding(dp(12), dp(8), dp(4), dp(8));
+        todasMarcadas.setOnClickListener(v -> {
+            for (Faixa f : visiveis) marcadas.add(f.uri);
+            atualizarSelecao();
+        });
+        topo.addView(todasMarcadas);
+        barra.addView(topo);
+        LinearLayout acoes = new LinearLayout(this);
+        String[] nomes = {"Renomear", "Playlist", "Curtir", "Excluir"};
+        Runnable[] fazer = {this::renomearSelecao, this::playlistDaSelecao, this::curtirSelecao, this::excluirSelecao};
+        for (int i = 0; i < nomes.length; i++) {
+            TextView b = botao(nomes[i], false, fazer[i]);
+            b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+            b.setSingleLine(true);
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, dp(40), 1f);
+            p.setMargins(i == 0 ? 0 : dp(4), dp(2), i == nomes.length - 1 ? 0 : dp(4), 0);
+            acoes.addView(b, p);
+        }
+        barra.addView(acoes);
+        barra.setVisibility(View.GONE);
+        return barra;
+    }
+
+    private void playlistDaSelecao() {
+        final List<Faixa> fs = selecionadas();
+        if (fs.isEmpty()) return;
+        final List<String> nomes = minhas.nomes();
+        String[] itens = new String[nomes.size() + 1];
+        itens[0] = "+  Nova playlist";
+        for (int i = 0; i < nomes.size(); i++) itens[i + 1] = nomes.get(i);
+        new Construtor()
+                .setTitle("Adicionar " + fs.size() + " à playlist")
+                .setItems(itens, (d, qual) -> {
+                    if (qual == 0) novaPlaylistDaSelecao(fs);
+                    else adicionarVariasNaPlaylist(nomes.get(qual - 1), fs);
+                })
+                .show();
+    }
+
+    private void novaPlaylistDaSelecao(final List<Faixa> fs) {
+        final EditText campo = campoDeTexto("");
+        campo.setHint("Nome da playlist");
+        new Construtor()
+                .setTitle("Nova playlist")
+                .setView(caixaDoCampo(campo))
+                .setPositiveButton("Criar", (d, q) -> {
+                    String nome = Playlists.limpar(campo.getText().toString());
+                    if (!minhas.criar(nome)) {
+                        Toast.makeText(this, nome.isEmpty() ? "Escreva um nome." : "Já existe uma playlist com esse nome.", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    adicionarVariasNaPlaylist(nome, fs);
+                })
+                .setNegativeButton("Cancelar", null)
+                .show();
+    }
+
+    private void adicionarVariasNaPlaylist(String nome, List<Faixa> fs) {
+        int entraram = 0;
+        for (Faixa f : fs) if (minhas.adicionar(nome, f.chave)) entraram++;
+        salvarPlaylists();
+        terminarSelecao();
+        if (secao == SECAO_PLAYLISTS || secao == SECAO_COLECAO) aplicarFiltro();
+        Toast.makeText(this, entraram + (entraram == 1 ? " adicionada a " : " adicionadas a ") + nome, Toast.LENGTH_SHORT).show();
+    }
+
+    /** Se todas as marcadas já são curtidas, descurte todas; senão, curte todas. */
+    private void curtirSelecao() {
+        List<Faixa> fs = selecionadas();
+        if (fs.isEmpty()) return;
+        boolean todasCurtidas = true;
+        for (Faixa f : fs) if (!curtidas.contains(f.chave)) todasCurtidas = false;
+        boolean alvo = !todasCurtidas;
+        for (Faixa f : fs) if (curtidas.contains(f.chave) != alvo) prefs.alternarCurtida(f.chave);
+        curtidas = prefs.curtidas();
+        terminarSelecao();
+        if (secao == SECAO_CURTIDAS) aplicarFiltro();
+        atualizarPlayer();
+        Toast.makeText(this, alvo ? "Curtidas" : "Descurtidas", Toast.LENGTH_SHORT).show();
+    }
+
+    private void excluirSelecao() {
+        final List<Faixa> fs = selecionadas();
+        if (fs.isEmpty()) return;
+        new Construtor()
+                .setTitle("Excluir " + fs.size() + (fs.size() == 1 ? " música?" : " músicas?"))
+                .setMessage("Os arquivos serão apagados e não dá para desfazer.")
+                .setPositiveButton("Excluir", (d, q) -> new Thread(() -> {
+                    final Set<String> apagadas = new java.util.HashSet<>();
+                    for (Faixa f : fs) {
+                        try {
+                            if (android.provider.DocumentsContract.deleteDocument(getContentResolver(), Uri.parse(f.uri))) apagadas.add(f.uri);
+                        } catch (Exception e) {
+                            // essa fica de fora e entra na contagem das que falharam
+                        }
+                    }
+                    final int falhas = fs.size() - apagadas.size();
+                    ui.post(() -> {
+                        if (isFinishing()) return;
+                        if (!apagadas.isEmpty()) {
+                            List<Faixa> lista = new ArrayList<>(todas);
+                            for (int i = lista.size() - 1; i >= 0; i--) if (apagadas.contains(lista.get(i).uri)) lista.remove(i);
+                            Biblioteca.guardar(this, lista);
+                            definirTodas(lista);
+                        }
+                        terminarSelecao();
+                        String msg = apagadas.size() + (apagadas.size() == 1 ? " excluída" : " excluídas");
+                        if (falhas > 0) msg += " · " + falhas + " não deu para excluir (pendrive protegido? escolha a pasta de novo no menu)";
+                        Toast.makeText(this, msg, Toast.LENGTH_LONG).show();
+                    });
+                }).start())
+                .setNegativeButton("Cancelar", null)
+                .show();
+    }
+
+    /** Renomear as marcadas de uma vez: escolhe o jeito, vê como ficam as primeiras e confirma. */
+    private void renomearSelecao() {
+        final List<Faixa> fs = selecionadas();
+        if (fs.isEmpty()) return;
+        final List<String> bases = new ArrayList<>();
+        for (Faixa f : fs) bases.add(Faixa.semExtensao(f.nome));
+        final List<String> biblioteca = new ArrayList<>();
+        for (Faixa f : todas) biblioteca.add(Faixa.semExtensao(f.nome));
+
+        final int[] modo = {Renomeacao.PADRONIZAR};
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setPadding(dp(22), dp(8), dp(22), 0);
+        final TextView[] opcoes = new TextView[Renomeacao.NOMES.length];
+        final EditText procurar = campoDeTexto("");
+        procurar.setHint("Procurar");
+        final EditText trocarPor = campoDeTexto("");
+        trocarPor.setHint("Trocar por (vazio = apagar)");
+        final TextView previa = texto(13, SUAVE, false);
+        previa.setSingleLine(false);
+        previa.setPadding(0, dp(10), 0, dp(4));
+        final Runnable[] recalcular = new Runnable[1];
+        for (int i = 0; i < opcoes.length; i++) {
+            final int este = i;
+            opcoes[i] = texto(15, TEXTO, false);
+            opcoes[i].setPadding(0, dp(8), 0, dp(8));
+            opcoes[i].setOnClickListener(v -> {
+                modo[0] = este;
+                recalcular[0].run();
+            });
+            col.addView(opcoes[i]);
+        }
+        col.addView(procurar);
+        col.addView(trocarPor);
+        col.addView(previa);
+        recalcular[0] = () -> {
+            for (int i = 0; i < opcoes.length; i++) {
+                opcoes[i].setText((modo[0] == i ? "●  " : "○  ") + Renomeacao.NOMES[i]);
+                opcoes[i].setTextColor(modo[0] == i ? ACENTO : TEXTO);
+            }
+            int vis = modo[0] == Renomeacao.TROCAR ? View.VISIBLE : View.GONE;
+            procurar.setVisibility(vis);
+            trocarPor.setVisibility(vis);
+            List<String> novos = Renomeacao.planejar(bases, biblioteca, modo[0], procurar.getText().toString(), trocarPor.getText().toString());
+            int mudam = 0;
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < novos.size(); i++) {
+                if (novos.get(i).isEmpty()) continue;
+                mudam++;
+                if (mudam <= 4) sb.append(bases.get(i)).append("\n→ ").append(novos.get(i)).append("\n\n");
+            }
+            String resumo = mudam == 0 ? "Nenhuma muda com esse jeito." : mudam + (mudam == 1 ? " será renomeada" : " serão renomeadas") + (mudam < fs.size() ? " (as outras já estão assim ou o nome já existe)" : "") + ".";
+            previa.setText(sb.toString() + resumo);
+        };
+        android.text.TextWatcher observador = new android.text.TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) { }
+            @Override public void onTextChanged(CharSequence s, int a, int b, int c) { }
+            @Override public void afterTextChanged(android.text.Editable e) { recalcular[0].run(); }
+        };
+        procurar.addTextChangedListener(observador);
+        trocarPor.addTextChangedListener(observador);
+        recalcular[0].run();
+        ScrollView rolagem = new ScrollView(this);
+        rolagem.addView(col);
+        new Construtor()
+                .setTitle("Renomear " + fs.size() + (fs.size() == 1 ? " música" : " músicas"))
+                .setView(rolagem)
+                .setPositiveButton("Renomear", (d, q) -> {
+                    final List<String> novos = Renomeacao.planejar(bases, biblioteca, modo[0], procurar.getText().toString(), trocarPor.getText().toString());
+                    executarRenomeacao(fs, novos);
+                })
+                .setNegativeButton("Cancelar", null)
+                .show();
+    }
+
+    private void executarRenomeacao(final List<Faixa> fs, final List<String> novos) {
+        new Thread(() -> {
+            final List<Faixa[]> feitas = new ArrayList<>();
+            int tentadas = 0;
+            for (int i = 0; i < fs.size(); i++) {
+                if (novos.get(i).isEmpty()) continue;
+                tentadas++;
+                Faixa f = fs.get(i);
+                String extensao = f.nome.substring(Faixa.semExtensao(f.nome).length());
+                try {
+                    Uri novo = android.provider.DocumentsContract.renameDocument(getContentResolver(), Uri.parse(f.uri), novos.get(i) + extensao);
+                    if (novo != null) feitas.add(new Faixa[]{f, new Faixa(novo.toString(), novos.get(i) + extensao)});
+                } catch (Exception e) {
+                    // essa fica com o nome de antes
+                }
+            }
+            final int falhas = tentadas - feitas.size();
+            ui.post(() -> {
+                if (isFinishing()) return;
+                if (!feitas.isEmpty()) {
+                    Map<String, Faixa> porUriAntiga = new HashMap<>();
+                    for (Faixa[] par : feitas) {
+                        porUriAntiga.put(par[0].uri, par[1]);
+                        prefs.renomearCurtida(par[0].chave, par[1].chave);
+                        historico.renomear(par[0].chave, par[1].chave);
+                        minhas.renomearChave(par[0].chave, par[1].chave);
+                    }
+                    List<Faixa> lista = new ArrayList<>(todas);
+                    for (int i = 0; i < lista.size(); i++) {
+                        Faixa nova = porUriAntiga.get(lista.get(i).uri);
+                        if (nova != null) lista.set(i, nova);
+                    }
+                    curtidas = prefs.curtidas();
+                    salvarPlaylists();
+                    guardarHistorico();
+                    lista = Catalogo.ordenar(lista);
+                    Biblioteca.guardar(this, lista);
+                    definirTodas(lista);
+                }
+                terminarSelecao();
+                String msg = feitas.size() + (feitas.size() == 1 ? " renomeada" : " renomeadas");
+                if (falhas > 0) msg += " · " + falhas + " não deu para renomear";
+                Toast.makeText(this, msg, Toast.LENGTH_LONG).show();
+            });
+        }).start();
+    }
+
     private void renomear(final Faixa f) {
         final EditText campo = new EditText(this);
         campo.setSingleLine(true);
@@ -1906,6 +2243,7 @@ public class MainActivity extends Activity {
 
     /** Troca a secao do menu lateral. */
     private void irPara(int nova) {
+        if (selecionando) terminarSelecao();
         if (nova == SECAO_COLECAO && secao != SECAO_COLECAO) secaoAnterior = secao;
         secao = nova;
         lblSecao.setText(nova == SECAO_COLECAO ? colecaoTitulo : NOMES_SECAO[nova]);
@@ -2186,7 +2524,7 @@ public class MainActivity extends Activity {
         String[][] dados = {
                 {String.valueOf(todas.size()), "músicas"},
                 {String.valueOf(artistas.size()), "artistas"},
-                {Historico.duracao(historico.tempoTotalMs()), "ouvido"},
+                {String.valueOf(historico.totalDeVezes()), "reproduções"},
         };
         for (int i = 0; i < dados.length; i++) {
             LinearLayout cartao = cartaoDeNumero(dados[i][0], dados[i][1]);
@@ -2199,13 +2537,27 @@ public class MainActivity extends Activity {
         }
         c.addView(resumo, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
+        if (todas.isEmpty()) {
+            TextView aviso = texto(14, SUAVE, false);
+            aviso.setSingleLine(false);
+            aviso.setGravity(Gravity.CENTER);
+            aviso.setText(varrendo ? (achadasAgora > 0 ? "Procurando músicas… " + achadasAgora : "Procurando músicas…")
+                    : prefs.arvore() == null ? "Escolha a pasta onde ficam as suas músicas." : "Nenhuma música encontrada na pasta.");
+            aviso.setPadding(0, dp(26), 0, dp(10));
+            c.addView(aviso, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            if (!varrendo) {
+                TextView escolher = botao("Escolher a pasta das músicas", true, this::escolherPasta);
+                escolher.setTextColor(0xFFFFFFFF);
+                c.addView(escolher, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)));
+            }
+        }
         Set<String> mostradas = new java.util.HashSet<>();
         carrosselDoInicio(c, "Tocadas recentemente", semRepetidas(historico.recentes(todas, 15), mostradas), SECAO_RECENTES);
         carrosselDoInicio(c, "Mais tocadas", semRepetidas(historico.maisTocadas(todas, 30), mostradas), SECAO_MAIS);
         carrosselDoInicio(c, "Adicionadas recentemente", semRepetidas(Catalogo.ordenarPor(todas, 3, f -> etiquetas.duracao(f.uri)), mostradas), SECAO_MUSICAS);
     }
 
-    /** O campo de baixar da página inicial (como no app do PC): link ou nome da música. */
+    /** O campo de baixar da página inicial (como no app do PC): link ou nome da música; várias linhas baixam em lote. */
     private LinearLayout montarCartaoBaixar() {
         LinearLayout cartao = new LinearLayout(this);
         cartao.setOrientation(LinearLayout.VERTICAL);
@@ -2217,23 +2569,38 @@ public class MainActivity extends Activity {
         ic.definir(IconeView.DOWNLOAD, ACENTO);
         topo.addView(ic, new LinearLayout.LayoutParams(dp(20), dp(20)));
         TextView titulo = texto(15, TEXTO, true);
-        titulo.setText("Baixar música");
+        titulo.setText("Baixar músicas");
         titulo.setPadding(dp(8), 0, 0, 0);
-        topo.addView(titulo);
+        topo.addView(titulo, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        lblFilaInicio = texto(13, ACENTO, true);
+        lblFilaInicio.setPadding(dp(10), dp(4), 0, dp(4));
+        lblFilaInicio.setOnClickListener(v -> abrirFila());
+        lblFilaInicio.setVisibility(View.GONE);
+        topo.addView(lblFilaInicio);
         cartao.addView(topo);
-        LinearLayout linha = new LinearLayout(this);
-        linha.setGravity(Gravity.CENTER_VERTICAL);
+
+        FrameLayout moldura = new FrameLayout(this);
         final EditText campo = new EditText(this);
-        campo.setHint("Cole um link ou escreva o nome");
+        campo.setHint("Link ou nome da música");
         campo.setHintTextColor(SUAVE);
         campo.setTextColor(TEXTO);
         campo.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
-        campo.setSingleLine(true);
-        campo.setInputType(InputType.TYPE_CLASS_TEXT);
-        campo.setImeOptions(EditorInfo.IME_ACTION_GO);
-        campo.setBackground(forma(FUNDO, 12, LINHA));
-        campo.setPadding(dp(14), 0, dp(14), 0);
-        final Runnable baixar = () -> {
+        campo.setMaxLines(4);
+        campo.setMinHeight(dp(52));
+        campo.setGravity(Gravity.CENTER_VERTICAL);
+        campo.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        campo.setBackground(forma(FUNDO, 26, LINHA));
+        campo.setPadding(dp(18), dp(10), dp(62), dp(10));
+        moldura.addView(campo, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        FrameLayout botao = new FrameLayout(this);
+        botao.setBackground(toque(forma(ACENTO, 20, 0), forma(0xFFFFFFFF, 20, 0)));
+        IconeView seta = new IconeView(this, IconeView.DOWNLOAD);
+        seta.definir(IconeView.DOWNLOAD, 0xFFFFFFFF);
+        botao.addView(seta, new FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER));
+        FrameLayout.LayoutParams pb = new FrameLayout.LayoutParams(dp(40), dp(40), Gravity.END | Gravity.CENTER_VERTICAL);
+        pb.setMargins(0, 0, dp(6), 0);
+        moldura.addView(botao, pb);
+        botao.setOnClickListener(v -> {
             String texto = campo.getText().toString().trim();
             if (texto.isEmpty()) {
                 Toast.makeText(this, "Escreva um link ou o nome da música.", Toast.LENGTH_SHORT).show();
@@ -2247,22 +2614,16 @@ public class MainActivity extends Activity {
             InputMethodManager imm = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
             if (imm != null) imm.hideSoftInputFromWindow(campo.getWindowToken(), 0);
             campo.setText("");
-            iniciarDownload(texto);
-        };
-        campo.setOnEditorActionListener((v, acao, ev) -> {
-            baixar.run();
-            return true;
+            baixarTexto(texto);
         });
-        LinearLayout.LayoutParams pc = new LinearLayout.LayoutParams(0, dp(46), 1f);
-        pc.setMargins(0, dp(10), dp(8), 0);
-        linha.addView(campo, pc);
-        TextView botao = botao("Baixar", true, baixar);
-        botao.setTextColor(0xFFFFFFFF);
-        botao.setPadding(dp(18), 0, dp(18), 0);
-        LinearLayout.LayoutParams pbt = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(46));
-        pbt.setMargins(0, dp(10), 0, 0);
-        linha.addView(botao, pbt);
-        cartao.addView(linha);
+        LinearLayout.LayoutParams pm = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        pm.setMargins(0, dp(10), 0, 0);
+        cartao.addView(moldura, pm);
+        TextView dica = texto(12, SUAVE, false);
+        dica.setSingleLine(false);
+        dica.setText("Para baixar várias, cole um link ou nome por linha, ou o link de uma playlist.");
+        dica.setPadding(dp(4), dp(8), 0, 0);
+        cartao.addView(dica);
         return cartao;
     }
 
@@ -2572,13 +2933,28 @@ public class MainActivity extends Activity {
         return g;
     }
 
+    /** TextView que sempre se considera em foco: só assim o texto longo rola sozinho dentro de listas (que mexem na seleção das linhas). */
+    private static final class Rolante extends TextView {
+        Rolante(android.content.Context c) {
+            super(c);
+        }
+
+        @Override
+        public boolean isFocused() {
+            return true;
+        }
+    }
+
     /** Texto de uma linha que, se não couber, rola de um lado ao outro (títulos e artistas). */
     private TextView rolante(float sp, int cor, boolean negrito) {
-        TextView t = texto(sp, cor, negrito);
+        TextView t = new Rolante(this);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
+        t.setTextColor(cor);
+        t.setSingleLine(true);
         t.setEllipsize(TextUtils.TruncateAt.MARQUEE);
         t.setMarqueeRepeatLimit(-1);
         t.setHorizontallyScrolling(true);
-        t.setSelected(true);
+        if (negrito) t.setTypeface(t.getTypeface(), android.graphics.Typeface.BOLD);
         return t;
     }
 
@@ -2695,6 +3071,7 @@ public class MainActivity extends Activity {
         // ordem e filtro da lista de músicas
         celulaAleatorio = new FrameLayout(this);
         LinearLayout pilulas = new LinearLayout(this);
+        pilulasDaBarra = pilulas;
         pilulas.setGravity(Gravity.CENTER_VERTICAL);
         bOrdem = botao("Ordem", false, this::menuOrdenar);
         bFiltro = botao("Filtrar", false, this::menuFiltrar);
@@ -2705,6 +3082,8 @@ public class MainActivity extends Activity {
         pilulas.addView(bOrdem, po);
         pilulas.addView(bFiltro, pf);
         celulaAleatorio.addView(pilulas, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        barraSelecao = montarBarraDeSelecao();
+        celulaAleatorio.addView(barraSelecao, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         LinearLayout.LayoutParams pcel = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         pcel.setMargins(dp(16), 0, dp(16), dp(6));
         raiz.addView(celulaAleatorio, pcel);
@@ -2720,6 +3099,8 @@ public class MainActivity extends Activity {
         lista.setOnItemClickListener((p, v, pos, id) -> {
             if (modoGrupos()) {
                 if (pos >= 0 && pos < grupos.size()) abrirColecao(grupos.get(pos));
+            } else if (selecionando) {
+                if (pos >= 0 && pos < visiveis.size()) alternarMarca(visiveis.get(pos));
             } else {
                 tocarDaLista(pos);
             }
@@ -2729,7 +3110,8 @@ public class MainActivity extends Activity {
             if (modoGrupos()) {
                 if (pos >= 0 && pos < grupos.size()) opcoesDoGrupo(grupos.get(pos));
             } else if (pos >= 0 && pos < visiveis.size()) {
-                opcoesDaFaixa(visiveis.get(pos));
+                if (selecionando) alternarMarca(visiveis.get(pos));
+                else opcoesDaFaixa(visiveis.get(pos));
             }
             return true;
         });
@@ -2901,10 +3283,16 @@ public class MainActivity extends Activity {
         FrameLayout cFechar = new FrameLayout(this);
         icone(IconeView.BAIXO, 26, this::fecharTocando, cFechar).definir(IconeView.BAIXO, TEXTO);
         topo.addView(cFechar, new LinearLayout.LayoutParams(dp(48), dp(48)));
-        TextView tituloTopo = texto(15, SUAVE, true);
+        tituloTopo = rolante(15, SUAVE, true);
         tituloTopo.setText("Tocando agora");
         tituloTopo.setGravity(Gravity.CENTER);
         topo.addView(tituloTopo, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        FrameLayout cCurtirTopo = new FrameLayout(this);
+        icCurtirTopo = icone(IconeView.CORACAO, 24, this::curtirAtual, cCurtirTopo);
+        icCurtirTopo.setVisibility(View.GONE);
+        cCurtirTopo.setVisibility(View.GONE);
+        celulaCurtirTopo = cCurtirTopo;
+        topo.addView(cCurtirTopo, new LinearLayout.LayoutParams(dp(44), dp(48)));
         FrameLayout cOpcoes = new FrameLayout(this);
         icone(IconeView.PONTOS, 26, () -> {
             Faixa f = faixaAtual();
@@ -2955,6 +3343,7 @@ public class MainActivity extends Activity {
         col.addView(areaCapa, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
         LinearLayout info = new LinearLayout(this);
+        linhaDoTitulo = info;
         info.setGravity(Gravity.CENTER_VERTICAL);
         info.setPadding(0, dp(12), 0, 0);
         LinearLayout nomes = new LinearLayout(this);
@@ -3141,6 +3530,7 @@ public class MainActivity extends Activity {
         }
         adicionarTitulo(itens, "Músicas");
         adicionarItem(itens, itemDoMenu("Baixar música", IconeView.DOWNLOAD, this::baixarNoCelular));
+        adicionarItem(itens, itemDoMenu("Fila de downloads", IconeView.DOWNLOAD, this::abrirFila));
         adicionarItem(itens, itemDoMenu("Baixar no PC", IconeView.COMPUTADOR, this::baixarNoPc));
         adicionarItem(itens, itemDoMenu("Enviar ao PC", IconeView.EXPORTAR, this::enviarAoPc));
         adicionarItem(itens, itemDoMenu("Exportar músicas", IconeView.PASTA, this::escolherOrigemDaExportacao));
@@ -3208,7 +3598,8 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
-        if (gavetaAberta) fecharGaveta();
+        if (selecionando) terminarSelecao();
+        else if (gavetaAberta) fecharGaveta();
         else if (tocandoAberto) fecharTocando();
         else if (secao == SECAO_COLECAO) irPara(secaoAnterior);
         else if (secao != SECAO_INICIO) irPara(SECAO_INICIO);
@@ -3248,19 +3639,53 @@ public class MainActivity extends Activity {
     }
 
     // ------------------------------------------------------------------ baixar no proprio celular
-    /** Avisa o fim de um download: mostra o resultado e, se deu certo, procura a musica nova na pasta. */
+    private TextView lblFilaInicio;
+    private Runnable redesenharFila;
+
+    /** Avisa o fim de cada download da fila: atualiza a biblioteca e, no fim, mostra o resumo. */
     private final android.content.BroadcastReceiver aoBaixar = new android.content.BroadcastReceiver() {
         @Override
         public void onReceive(android.content.Context contexto, Intent dados) {
             if (isFinishing()) return;
-            Toast.makeText(MainActivity.this, dados.getStringExtra(BaixarService.EXTRA_MENSAGEM), Toast.LENGTH_LONG).show();
-            if (dados.getBooleanExtra(BaixarService.EXTRA_OK, false)) atualizarBiblioteca();
+            boolean ok = dados.getBooleanExtra(BaixarService.EXTRA_OK, false);
+            boolean fim = dados.getBooleanExtra(BaixarService.EXTRA_FIM_DA_FILA, true);
+            int[] n = FilaDeDownload.contagem();
+            int total = FilaDeDownload.copia().size();
+            if (total <= 1) {
+                Toast.makeText(MainActivity.this, dados.getStringExtra(BaixarService.EXTRA_MENSAGEM), Toast.LENGTH_LONG).show();
+            } else if (fim) {
+                String resumo = n[FilaDeDownload.OK] + " de " + total + " baixadas";
+                if (n[FilaDeDownload.ERRO] > 0) resumo += " · " + n[FilaDeDownload.ERRO] + " com erro (veja a fila)";
+                Toast.makeText(MainActivity.this, resumo, Toast.LENGTH_LONG).show();
+            }
+            if (ok && (total <= 1 || fim)) atualizarBiblioteca();
         }
     };
 
+    /** Mantém o aviso "Fila · feitos/total" do cartão de download e a tela da fila em dia. */
+    private final Runnable aoMudarFila = () -> ui.post(() -> {
+        atualizarFilaInicio();
+        if (redesenharFila != null) redesenharFila.run();
+    });
+
+    private void atualizarFilaInicio() {
+        if (lblFilaInicio == null) return;
+        int[] n = FilaDeDownload.contagem();
+        int total = FilaDeDownload.copia().size();
+        boolean ativa = FilaDeDownload.ativa();
+        if (total == 0 || (!ativa && n[FilaDeDownload.ERRO] == 0)) {
+            lblFilaInicio.setVisibility(View.GONE);
+            return;
+        }
+        String t = "Fila · " + (n[FilaDeDownload.OK] + n[FilaDeDownload.ERRO]) + "/" + total;
+        if (n[FilaDeDownload.ERRO] > 0) t += " · " + n[FilaDeDownload.ERRO] + " erro(s)";
+        lblFilaInicio.setText(t);
+        lblFilaInicio.setVisibility(View.VISIBLE);
+    }
+
     private String pedidoPendente = "";
 
-    /** Baixa um link ou nome de musica direto no celular, para a pasta de musicas. */
+    /** Baixa links ou nomes (um ou vários, um por linha) direto no celular, para a pasta de músicas. */
     private void baixarNoCelular() {
         if (prefs.arvore() == null) {
             Toast.makeText(this, "Escolha primeiro a pasta de músicas.", Toast.LENGTH_LONG).show();
@@ -3268,16 +3693,290 @@ public class MainActivity extends Activity {
             return;
         }
         final EditText campo = campoDeTexto(pedidoPendente);
-        campo.setHint("Link ou nome da música");
+        campo.setSingleLine(false);
+        campo.setMaxLines(8);
+        campo.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        campo.setHint("Link ou nome da música (um por linha, ou o link de uma playlist)");
         new Construtor()
-                .setTitle("Baixar música")
+                .setTitle("Baixar músicas")
                 .setView(caixaDoCampo(campo))
                 .setPositiveButton("Baixar", (d, q) -> {
                     pedidoPendente = "";
-                    iniciarDownload(campo.getText().toString().trim());
+                    baixarTexto(campo.getText().toString().trim());
                 })
                 .setNegativeButton("Cancelar", (d, q) -> pedidoPendente = "")
                 .show();
+    }
+
+    /** Ponto único de entrada: um pedido simples segue o caminho antigo; vários (ou playlist) vão para o diálogo do lote. */
+    private void baixarTexto(final String texto) {
+        final List<String> pedidos = Pedido.separar(texto);
+        if (pedidos.isEmpty()) {
+            Toast.makeText(this, "Escreva um link ou o nome da música.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (pedidos.size() == 1 && !Pedido.ehPlaylist(pedidos.get(0))) {
+            iniciarDownload(pedidos.get(0));
+            return;
+        }
+        boolean temPlaylist = false;
+        for (String p : pedidos) if (Pedido.ehPlaylist(p)) temPlaylist = true;
+        if (!temPlaylist) {
+            dialogoDoLote(pedidos, new ArrayList<String>());
+            return;
+        }
+        final boolean[] cancelado = {false};
+        final AlertDialog espera = new Construtor()
+                .setMessage("Lendo a playlist…")
+                .setNegativeButton("Cancelar", (d, q) -> cancelado[0] = true)
+                .setOnCancelListener(d -> cancelado[0] = true)
+                .show();
+        new Thread(() -> {
+            final List<String> entradas = new ArrayList<>();
+            final List<String> titulos = new ArrayList<>();
+            for (String p : pedidos) {
+                if (cancelado[0]) return;
+                if (Pedido.ehPlaylist(p)) {
+                    for (Baixador.Entrada e : Baixador.expandirPlaylist(this, p)) {
+                        entradas.add(e.url);
+                        titulos.add(e.titulo);
+                    }
+                } else {
+                    entradas.add(p);
+                    titulos.add("");
+                }
+            }
+            ui.post(() -> {
+                if (cancelado[0] || isFinishing()) return;
+                espera.dismiss();
+                if (entradas.isEmpty()) {
+                    Toast.makeText(this, "Não consegui ler a playlist.", Toast.LENGTH_LONG).show();
+                    return;
+                }
+                dialogoDoLote(entradas, titulos);
+            });
+        }).start();
+    }
+
+    /** Uma linha do diálogo do lote. */
+    private static final class LinhaDoLote {
+        String entrada;
+        String titulo;
+        EditText campo;
+        View vista;
+        boolean removida;
+    }
+
+    /** Mostra o lote: cada música com um nome editável (vazio = automático) e um ✕ para tirar da lista. */
+    private void dialogoDoLote(final List<String> entradas, final List<String> titulos) {
+        final int total = entradas.size();
+        if (total > 80) {
+            new Construtor()
+                    .setTitle("Baixar " + total + " músicas?")
+                    .setMessage("Os nomes ficam automáticos (Artista - Título). Elas entram na fila e baixam duas por vez.")
+                    .setPositiveButton("Baixar tudo", (d, q) -> colocarNaFila(entradas, null))
+                    .setNegativeButton("Cancelar", null)
+                    .show();
+            return;
+        }
+        final List<LinhaDoLote> linhas = new ArrayList<>();
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setPadding(dp(18), dp(8), dp(18), 0);
+
+        LinearLayout acoes = new LinearLayout(this);
+        TextView preencher = texto(13, ACENTO, true);
+        preencher.setText("Preencher com os títulos");
+        preencher.setPadding(0, dp(6), dp(16), dp(10));
+        TextView automatico = texto(13, ACENTO, true);
+        automatico.setText("Deixar automático");
+        automatico.setPadding(0, dp(6), 0, dp(10));
+        acoes.addView(preencher);
+        acoes.addView(automatico);
+        col.addView(acoes);
+
+        final LinearLayout lista = new LinearLayout(this);
+        lista.setOrientation(LinearLayout.VERTICAL);
+        for (int i = 0; i < total; i++) {
+            final LinhaDoLote l = new LinhaDoLote();
+            l.entrada = entradas.get(i);
+            l.titulo = i < titulos.size() ? titulos.get(i) : "";
+            LinearLayout linha = new LinearLayout(this);
+            linha.setGravity(Gravity.CENTER_VERTICAL);
+            l.campo = new EditText(this);
+            l.campo.setSingleLine(true);
+            l.campo.setTextColor(temaClaro ? 0xFF18181B : 0xFFFFFFFF);
+            l.campo.setHintTextColor(SUAVE);
+            l.campo.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+            l.campo.setHint(l.titulo.isEmpty() ? l.entrada : l.titulo);
+            linha.addView(l.campo, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            TextView tirar = texto(18, SUAVE, true);
+            tirar.setText("✕");
+            tirar.setGravity(Gravity.CENTER);
+            tirar.setPadding(dp(12), dp(8), dp(4), dp(8));
+            tirar.setOnClickListener(v -> {
+                l.removida = true;
+                l.vista.setVisibility(View.GONE);
+            });
+            linha.addView(tirar);
+            l.vista = linha;
+            lista.addView(linha);
+            linhas.add(l);
+        }
+        col.addView(lista);
+        preencher.setOnClickListener(v -> {
+            for (LinhaDoLote l : linhas) {
+                if (!l.titulo.isEmpty()) l.campo.setText(Limpeza.nomeSugerido("NA", "NA", l.titulo));
+            }
+        });
+        automatico.setOnClickListener(v -> {
+            for (LinhaDoLote l : linhas) l.campo.setText("");
+        });
+        ScrollView rolagem = new ScrollView(this);
+        rolagem.addView(col);
+        new Construtor()
+                .setTitle(total + " músicas")
+                .setView(rolagem)
+                .setPositiveButton("Baixar tudo", (d, q) -> {
+                    List<String> e = new ArrayList<>();
+                    List<String> nomes = new ArrayList<>();
+                    for (LinhaDoLote l : linhas) {
+                        if (l.removida) continue;
+                        e.add(l.entrada);
+                        nomes.add(Pedido.nomeDoArquivo(l.campo.getText().toString()));
+                    }
+                    if (e.isEmpty()) return;
+                    colocarNaFila(e, nomes);
+                })
+                .setNegativeButton("Cancelar", null)
+                .show();
+    }
+
+    /** Com a pergunta ligada, busca o titulo e deixa a pessoa renomear antes de baixar. */
+    private void iniciarDownload(final String texto) {
+        if (Pedido.entrada(texto).isEmpty()) {
+            Toast.makeText(this, "Escreva um link ou o nome da música.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (!prefs.baixarPerguntarNome()) {
+            enviarDownload(texto, "");
+            return;
+        }
+        final boolean[] cancelado = {false};
+        final AlertDialog espera = new Construtor()
+                .setMessage("Buscando a música…")
+                .setNegativeButton("Cancelar", (d, q) -> cancelado[0] = true)
+                .setOnCancelListener(d -> cancelado[0] = true)
+                .show();
+        new Thread(() -> {
+            final String titulo = Baixador.titulo(this, texto);
+            ui.post(() -> {
+                if (cancelado[0] || isFinishing()) return;
+                espera.dismiss();
+                perguntarONome(texto, titulo);
+            });
+        }).start();
+    }
+
+    private void perguntarONome(final String texto, String sugestao) {
+        final EditText campo = campoDeTexto(sugestao);
+        campo.setHint("Nome do arquivo");
+        new Construtor()
+                .setTitle("Nome do arquivo")
+                .setView(caixaDoCampo(campo))
+                .setPositiveButton("Baixar", (d, q) -> enviarDownload(texto, campo.getText().toString()))
+                .setNegativeButton("Cancelar", null)
+                .show();
+    }
+
+    private void enviarDownload(String texto, String nome) {
+        List<String> e = new ArrayList<>();
+        List<String> n = new ArrayList<>();
+        e.add(texto);
+        n.add(Pedido.nomeDoArquivo(nome));
+        colocarNaFila(e, n);
+    }
+
+    /** Põe os pedidos na fila e acorda o serviço, que baixa duas músicas por vez. */
+    private void colocarNaFila(List<String> entradas, List<String> nomes) {
+        if (prefs.arvore() == null) {
+            Toast.makeText(this, "Escolha primeiro a pasta de músicas.", Toast.LENGTH_LONG).show();
+            escolherPasta();
+            return;
+        }
+        if (!FilaDeDownload.ativa()) FilaDeDownload.limparConcluidos();
+        FilaDeDownload.adicionar(entradas, nomes, prefs.arvore(), prefs.baixarFormato(), prefs.baixarTaxa());
+        Intent servico = new Intent(this, BaixarService.class);
+        if (Build.VERSION.SDK_INT >= 26) startForegroundService(servico);
+        else startService(servico);
+        Toast.makeText(this, entradas.size() == 1 ? "Baixando… o aviso aparece quando terminar." : entradas.size() + " músicas na fila.", Toast.LENGTH_LONG).show();
+        atualizarFilaInicio();
+    }
+
+    /** Tela da fila: andamento de cada música, com cancelar os que faltam, limpar os prontos e tentar de novo os que falharam. */
+    private void abrirFila() {
+        final LinearLayout lista = new LinearLayout(this);
+        lista.setOrientation(LinearLayout.VERTICAL);
+        lista.setPadding(dp(22), dp(8), dp(22), 0);
+        ScrollView rolagem = new ScrollView(this);
+        rolagem.addView(lista);
+        final AlertDialog d = new Construtor()
+                .setTitle("Fila de downloads")
+                .setView(rolagem)
+                .setPositiveButton("Fechar", null)
+                .setNegativeButton("Cancelar os que faltam", null)
+                .setNeutralButton("Limpar prontos", null)
+                .create();
+        redesenharFila = () -> {
+            lista.removeAllViews();
+            List<FilaDeDownload.Item> itens = FilaDeDownload.copia();
+            if (itens.isEmpty()) {
+                TextView vazio = texto(14, SUAVE, false);
+                vazio.setText("A fila está vazia.");
+                lista.addView(vazio);
+            }
+            String[] glifo = {"…", "↓", "✓", "✕"};
+            for (FilaDeDownload.Item it : itens) {
+                TextView t = texto(14, it.estado == FilaDeDownload.ERRO ? 0xFFE5484D : (it.estado == FilaDeDownload.OK ? ACENTO : TEXTO), false);
+                t.setSingleLine(true);
+                t.setEllipsize(TextUtils.TruncateAt.END);
+                t.setText(glifo[Math.max(0, Math.min(3, it.estado))] + "  " + it.rotulo());
+                t.setPadding(0, dp(6), 0, dp(6));
+                lista.addView(t);
+                if (it.estado == FilaDeDownload.ERRO && !it.mensagem.isEmpty()) {
+                    TextView m = texto(12, SUAVE, false);
+                    m.setText(it.mensagem);
+                    lista.addView(m);
+                }
+            }
+        };
+        d.setOnDismissListener(x -> redesenharFila = null);
+        d.show();
+        try {
+            if (d.getWindow() != null) d.getWindow().setBackgroundDrawable(new android.graphics.drawable.InsetDrawable(forma(CARTAO, 22, LINHA), dp(6)));
+        } catch (Exception e) {
+            // o visual padrao do dialogo continua valendo
+        }
+        d.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(ACENTO);
+        d.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(SUAVE);
+        d.getButton(AlertDialog.BUTTON_NEUTRAL).setTextColor(SUAVE);
+        d.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener(v -> FilaDeDownload.cancelarPendentes());
+        d.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v -> {
+            if (FilaDeDownload.contagem()[FilaDeDownload.ERRO] > 0 && !FilaDeDownload.ativa()) {
+                // com erros e nada rodando, o botão serve para tentar de novo
+                int n = FilaDeDownload.tentarDeNovo();
+                if (n > 0) startServicoDeDownload();
+            } else {
+                FilaDeDownload.limparConcluidos();
+            }
+        });
+        redesenharFila.run();
+    }
+
+    private void startServicoDeDownload() {
+        Intent servico = new Intent(this, BaixarService.class);
+        if (Build.VERSION.SDK_INT >= 26) startForegroundService(servico);
+        else startService(servico);
     }
 
     /** Categorias de ajustes, como no app do PC. */
@@ -3357,55 +4056,6 @@ public class MainActivity extends Activity {
         lp.setMargins(0, 0, 0, dp(8));
         t.setLayoutParams(lp);
         return t;
-    }
-
-    /** Com a pergunta ligada, busca o titulo e deixa a pessoa renomear antes de baixar. */
-    private void iniciarDownload(final String texto) {
-        if (Pedido.entrada(texto).isEmpty()) {
-            Toast.makeText(this, "Escreva um link ou o nome da música.", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        if (!prefs.baixarPerguntarNome()) {
-            enviarDownload(texto, "");
-            return;
-        }
-        final boolean[] cancelado = {false};
-        final AlertDialog espera = new Construtor()
-                .setMessage("Buscando a música…")
-                .setNegativeButton("Cancelar", (d, q) -> cancelado[0] = true)
-                .setOnCancelListener(d -> cancelado[0] = true)
-                .show();
-        new Thread(() -> {
-            final String titulo = Baixador.titulo(this, texto);
-            ui.post(() -> {
-                if (cancelado[0] || isFinishing()) return;
-                espera.dismiss();
-                perguntarONome(texto, titulo);
-            });
-        }).start();
-    }
-
-    private void perguntarONome(final String texto, String sugestao) {
-        final EditText campo = campoDeTexto(sugestao);
-        campo.setHint("Nome do arquivo");
-        new Construtor()
-                .setTitle("Nome do arquivo")
-                .setView(caixaDoCampo(campo))
-                .setPositiveButton("Baixar", (d, q) -> enviarDownload(texto, campo.getText().toString()))
-                .setNegativeButton("Cancelar", null)
-                .show();
-    }
-
-    private void enviarDownload(String texto, String nome) {
-        Intent servico = new Intent(this, BaixarService.class)
-                .putExtra(BaixarService.EXTRA_PEDIDO, texto)
-                .putExtra(BaixarService.EXTRA_ARVORE, prefs.arvore())
-                .putExtra(BaixarService.EXTRA_NOME, Pedido.nomeDoArquivo(nome))
-                .putExtra(BaixarService.EXTRA_FORMATO, prefs.baixarFormato())
-                .putExtra(BaixarService.EXTRA_TAXA, prefs.baixarTaxa());
-        if (Build.VERSION.SDK_INT >= 26) startForegroundService(servico);
-        else startService(servico);
-        Toast.makeText(this, "Baixando… o aviso aparece quando terminar.", Toast.LENGTH_LONG).show();
     }
 
     // ------------------------------------------------------------------ baixar no PC
@@ -3661,7 +4311,8 @@ public class MainActivity extends Activity {
                     if (modoGrupos()) {
                         if (nova.pos < grupos.size()) opcoesDoGrupo(grupos.get(nova.pos));
                     } else if (nova.pos < visiveis.size()) {
-                        opcoesDaFaixa(visiveis.get(nova.pos));
+                        if (selecionando) alternarMarca(visiveis.get(nova.pos));
+                        else opcoesDaFaixa(visiveis.get(nova.pos));
                     }
                 });
                 linha.addView(nova.celulaMais, new LinearLayout.LayoutParams(dp(42), dp(48)));
@@ -3678,6 +4329,7 @@ public class MainActivity extends Activity {
                 l.titulo.setTextColor(TEXTO);
                 l.artista.setText(g.sub);
                 l.artista.setVisibility(View.VISIBLE);
+                v.setBackground(toque(null, new android.graphics.drawable.ColorDrawable(0xFF000000)));
                 l.coracao.setVisibility(View.GONE);
                 l.duracao.setVisibility(View.GONE);
                 arredondar(l.caixaCapa, secao == SECAO_ARTISTAS ? -1 : 10);
@@ -3692,7 +4344,9 @@ public class MainActivity extends Activity {
             l.artista.setVisibility(detalhe.isEmpty() ? View.GONE : View.VISIBLE);
             MediaItem mi = player == null ? null : player.getCurrentMediaItem();
             boolean tocando = mi != null && f.uri.equals(mi.mediaId);
-            l.titulo.setTextColor(tocando ? ACENTO : TEXTO);
+            boolean marcada = selecionando && marcadas.contains(f.uri);
+            l.titulo.setTextColor(tocando || marcada ? ACENTO : TEXTO);
+            v.setBackground(marcada ? forma((ACENTO & 0x00FFFFFF) | 0x33000000, 0, 0) : toque(null, new android.graphics.drawable.ColorDrawable(0xFF000000)));
             l.coracao.setVisibility(curtidas.contains(f.chave) ? View.VISIBLE : View.GONE);
             long dur = etiquetas.duracao(f.uri);
             l.duracao.setText(dur > 0 ? formatar(dur) : "");

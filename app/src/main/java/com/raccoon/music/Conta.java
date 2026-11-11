@@ -190,7 +190,7 @@ public final class Conta {
 
     private static Resposta licencas(String token) {
         String[] campos = {"tipo,expira_em,dias_offline", "tipo,expira_em"};
-        String[] apps = {"&app=in.(global,music_desktop,music_mobile)", ""};
+        String[] apps = {"&app=in.(global,music_mobile)", ""};  // a licença só do PC (music_desktop) não vale aqui
         Resposta r = new Resposta();
         for (String app : apps) {
             for (String campo : campos) {

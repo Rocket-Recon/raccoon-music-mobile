@@ -74,6 +74,36 @@ public final class Pedido {
         return escolhida.length() > 220 ? escolhida.substring(0, 220) + "…" : escolhida;
     }
 
+    /** Separa o texto colado em pedidos: um por linha; vários links na mesma linha (separados por espaço, vírgula ou ponto e vírgula) também viram pedidos. Sem repetidos. */
+    public static List<String> separar(String texto) {
+        List<String> r = new ArrayList<>();
+        if (texto == null) return r;
+        for (String linha : texto.split("\\r?\\n")) {
+            String l = linha.trim();
+            if (l.isEmpty()) continue;
+            String[] partes = l.split("[\\s,;]+");
+            boolean soLinks = partes.length > 1;
+            for (String p : partes) if (!ehLink(p)) soLinks = false;
+            if (soLinks) {
+                for (String p : partes) adicionarSemRepetir(r, p);
+            } else {
+                adicionarSemRepetir(r, l);
+            }
+        }
+        return r;
+    }
+
+    private static void adicionarSemRepetir(List<String> lista, String item) {
+        for (String x : lista) if (x.equalsIgnoreCase(item)) return;
+        lista.add(item);
+    }
+
+    /** Link de uma playlist inteira (e não de uma música que só está dentro de uma). */
+    public static boolean ehPlaylist(String texto) {
+        String t = texto == null ? "" : texto.trim().toLowerCase();
+        return ehLink(t) && t.contains("/playlist?");
+    }
+
     public static boolean ehLink(String texto) {
         String t = texto == null ? "" : texto.trim().toLowerCase();
         return t.startsWith("http://") || t.startsWith("https://");
