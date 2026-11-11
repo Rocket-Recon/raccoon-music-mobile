@@ -3209,9 +3209,9 @@ public class MainActivity extends Activity {
         po.setMargins(0, 0, dp(5), 0);
         LinearLayout.LayoutParams pf = new LinearLayout.LayoutParams(0, dp(42), 1f);
         pf.setMargins(dp(5), 0, 0, 0);
-        ps.setMargins(dp(2), 0, dp(2), 0);
         pilulas.addView(bOrdem, po);
         LinearLayout.LayoutParams ps = new LinearLayout.LayoutParams(dp(46), dp(42));
+        ps.setMargins(dp(2), 0, dp(2), 0);
         pilulas.addView(bSeta, ps);
         pilulas.addView(bFiltro, pf);
         celulaAleatorio.addView(pilulas, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
