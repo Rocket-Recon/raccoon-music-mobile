@@ -312,30 +312,67 @@ public final class Conta {
 
     private static final String TABELA_SINCRONIZACAO = "/rest/v1/sincronizacao_music";
 
-    /** O texto de curtidas e playlists guardado na conta: "" se ainda não há nada; null se não deu para falar com a conta. */
+    /** Motivo da última falha da sincronização pela conta (vazio quando deu certo). */
+    public static volatile String erroDaSincronizacao = "";
+
+    /** Traduz a resposta de erro do banco em uma frase com o motivo real. */
+    static String motivoDaRecusa(int status, String corpo, String acao) {
+        if (status == 0) return "Sem internet para falar com a conta.";
+        JSONObject o = objeto(corpo);
+        String codigo = o.optString("code", o.optString("error_code", ""));
+        String detalhe = o.optString("message", o.optString("msg", "")).trim();
+        if (status == 404 || "PGRST205".equals(codigo) || "42P01".equals(codigo))
+            return "A tabela de sincronização não existe no Supabase (supabase/sincronizacao.sql).";
+        if (status == 401 || status == 403 || "42501".equals(codigo))
+            return "A conta não tem permissão para " + acao + ". Saia da conta e entre de novo.";
+        return "A conta recusou " + acao + " (erro " + status + (codigo.isEmpty() ? "" : " " + codigo) + ")." + (detalhe.isEmpty() ? "" : " " + detalhe);
+    }
+
+    /** O texto de curtidas e playlists guardado na conta: "" se ainda não há nada; null se deu erro (o motivo fica em erroDaSincronizacao). */
     public static String baixarSincronizacao(Context c) {
+        erroDaSincronizacao = "";
         String t = token(c);
-        if (t == null) return null;
+        if (t == null) {
+            erroDaSincronizacao = logado(c) ? "Sem internet para falar com a conta." : "Entre na sua conta primeiro.";
+            return null;
+        }
         Resposta r = http("GET", URL_BASE + TABELA_SINCRONIZACAO + "?select=dados", t, null);
-        if (r.status < 200 || r.status >= 300) return null;
+        if (r.status < 200 || r.status >= 300) {
+            erroDaSincronizacao = motivoDaRecusa(r.status, r.corpo, "a consulta");
+            return null;
+        }
         try {
             JSONArray linhas = new JSONArray(r.corpo);
             return linhas.length() == 0 ? "" : linhas.getJSONObject(0).optString("dados", "");
         } catch (Exception e) {
+            erroDaSincronizacao = "Resposta inesperada da conta.";
             return null;
         }
     }
 
+    private static String agoraIso() {
+        SimpleDateFormat f = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.ROOT);
+        f.setTimeZone(java.util.TimeZone.getTimeZone("UTC"));
+        return f.format(new java.util.Date());
+    }
+
     /** Guarda na conta o texto de curtidas e playlists (soma de PC e celular). */
     public static boolean enviarSincronizacao(Context c, String texto) {
+        erroDaSincronizacao = "";
         String t = token(c);
-        if (t == null) return false;
+        if (t == null) {
+            erroDaSincronizacao = "Sem internet para falar com a conta.";
+            return false;
+        }
         try {
             Resposta r = http("POST", URL_BASE + TABELA_SINCRONIZACAO + "?on_conflict=user_id", t,
-                    new JSONObject().put("dados", texto).put("atualizado_em", "now()").toString(),
+                    new JSONObject().put("dados", texto).put("atualizado_em", agoraIso()).toString(),
                     "resolution=merge-duplicates,return=minimal");
-            return r.status >= 200 && r.status < 300;
+            if (r.status >= 200 && r.status < 300) return true;
+            erroDaSincronizacao = motivoDaRecusa(r.status, r.corpo, "o envio");
+            return false;
         } catch (Exception e) {
+            erroDaSincronizacao = "Não consegui enviar para a conta.";
             return false;
         }
     }

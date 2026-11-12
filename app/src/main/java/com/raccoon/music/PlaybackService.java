@@ -59,6 +59,7 @@ public class PlaybackService extends MediaSessionService {
                 .setHandleAudioBecomingNoisy(true)     // pausa se o fone ou o Bluetooth desconectar
                 .setWakeMode(C.WAKE_MODE_LOCAL)
                 .build();
+        player.setRepeatMode(prefs.modoDoPlayer());
         player.addListener(new Player.Listener() {
             @Override
             public void onRepeatModeChanged(int modo) {
@@ -76,7 +77,7 @@ public class PlaybackService extends MediaSessionService {
                 atualizarWidget();
             }
         });
-        sessao = new MediaSession.Builder(this, new PlayerComBotoesFixos(player))
+        sessao = new MediaSession.Builder(this, new PlayerComBotoesFixos(player, this))
                 .setCallback(new Retorno())
                 .setCustomLayout(botoes())
                 .build();
@@ -87,8 +88,26 @@ public class PlaybackService extends MediaSessionService {
      * notificação e a ordem de aleatório/repetir muda; aqui a próxima da última volta ao começo da fila.
      */
     private static final class PlayerComBotoesFixos extends ForwardingPlayer {
-        PlayerComBotoesFixos(Player p) {
+        private final android.content.Context contexto;
+
+        PlayerComBotoesFixos(Player p, android.content.Context contexto) {
             super(p);
+            this.contexto = contexto;
+        }
+
+        /** Sem conta liberada (login e licença ou modo grátis) o app não toca, nem pela notificação, fone ou widget. */
+        private boolean podeTocar() {
+            return Conta.liberado(contexto);
+        }
+
+        @Override
+        public void play() {
+            if (podeTocar()) super.play();
+        }
+
+        @Override
+        public void setPlayWhenReady(boolean tocar) {
+            if (!tocar || podeTocar()) super.setPlayWhenReady(tocar);
         }
 
         @Override
@@ -142,7 +161,7 @@ public class PlaybackService extends MediaSessionService {
             }
             if (ACAO_WIDGET_TOCAR.equals(acao)) {
                 if (p.isPlaying()) p.pause();
-                else p.play();
+                else if (Conta.liberado(this)) p.play();
             } else if (ACAO_WIDGET_PROXIMA.equals(acao)) {
                 p.seekToNextMediaItem();
             } else if (ACAO_WIDGET_ANTERIOR.equals(acao)) {
@@ -153,9 +172,7 @@ public class PlaybackService extends MediaSessionService {
     }
 
     private ImmutableList<CommandButton> botoes() {
-        int repetir = prefs.repetir();
-        int iconeRepetir = repetir == Player.REPEAT_MODE_ONE ? R.drawable.ic_notif_repetir_um
-                : repetir == Player.REPEAT_MODE_ALL ? R.drawable.ic_notif_repetir_all : R.drawable.ic_notif_repetir_off;
+        int iconeRepetir = prefs.repetindo() ? R.drawable.ic_notif_repetir_all : R.drawable.ic_notif_repetir_off;
         CommandButton aleatorio = new CommandButton.Builder()
                 .setDisplayName("Aleatório")
                 .setIconResId(prefs.embaralhar() ? R.drawable.ic_notif_aleatorio_on : R.drawable.ic_notif_aleatorio_off)
@@ -202,9 +219,8 @@ public class PlaybackService extends MediaSessionService {
 
     private void alternarRepetir() {
         Player p = sessao.getPlayer();
-        int atual = p.getRepeatMode();
-        p.setRepeatMode(atual == Player.REPEAT_MODE_OFF ? Player.REPEAT_MODE_ALL
-                : atual == Player.REPEAT_MODE_ALL ? Player.REPEAT_MODE_ONE : Player.REPEAT_MODE_OFF);
+        prefs.repetindo(!prefs.repetindo());
+        p.setRepeatMode(prefs.modoDoPlayer());
     }
 
     private final class Retorno implements MediaSession.Callback {

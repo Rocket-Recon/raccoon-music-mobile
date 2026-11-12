@@ -32,7 +32,7 @@ public final class IconeView extends View {
             case PROXIMA: return "Próxima música";
             case ANTERIOR: return "Música anterior";
             case ALEATORIO: return "Aleatório";
-            case REPETIR: return "Repetir";
+            case REPETIR: return "Repetir esta música";
             case REPETIR_UM: return "Repetir esta música";
             case CORACAO: return "Curtir";
             case CORACAO_CHEIO: return "Descurtir";
@@ -44,7 +44,7 @@ public final class IconeView extends View {
             case PONTOS: return "Mais opções";
             case FILA: return "Fila";
             case LETRA: return "Letra";
-            case SEPARAR: return "Separar voz";
+            case SEPARAR: return "Separar faixa";
             case PLAYLIST_MAIS: return "Adicionar à playlist";
             case RELOGIO: return "Temporizador";
             case ARTISTA: return "Artistas";

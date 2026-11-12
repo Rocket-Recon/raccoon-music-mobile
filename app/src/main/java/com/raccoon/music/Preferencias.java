@@ -76,6 +76,11 @@ public final class Preferencias {
 
     public int repetir() { return sp.getInt("repetir", Player.REPEAT_MODE_ALL); }
     public void repetir(int v) { sp.edit().putInt("repetir", v).apply(); }
+    /** Repetir é só ligado ou desligado: ligado repete a faixa atual; desligado segue a fila (e dá a volta no fim). */
+    public boolean repetindo() { return repetir() == Player.REPEAT_MODE_ONE; }
+    public void repetindo(boolean v) { repetir(v ? Player.REPEAT_MODE_ONE : Player.REPEAT_MODE_ALL); }
+    /** O modo do ExoPlayer que corresponde ao estado de Repetir. */
+    public int modoDoPlayer() { return repetindo() ? Player.REPEAT_MODE_ONE : Player.REPEAT_MODE_ALL; }
 
     /** O PC que baixa as musicas: endereco ("192.168.0.5:8765") e codigo mostrado na janela Celular. */
     public String pcEndereco() { return sp.getString("pc_endereco", ""); }

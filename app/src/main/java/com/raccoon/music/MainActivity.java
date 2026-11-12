@@ -156,6 +156,7 @@ public class MainActivity extends Activity {
     private ImageView capaMini;
     private IconeView notaMini, notaGrande, icPlayMini, icProximaMini, icMenu, icLetra;
     private FrameLayout celulaMais, celulaAleatorio;
+    private TextView btnPeriodo;
     private LinearLayout linhaControles, linhaTempos, linhaBotoesLetra;
     private IconeView icSeparar;
     private String modoSeparado = null;     // "voz", "instrumental" ou null (original): vale só para a música de agora
@@ -531,7 +532,7 @@ public class MainActivity extends Activity {
             if (soma > 0) s += "  ·  " + Historico.duracao(soma);
         }
         if (secao == SECAO_INICIO && Conta.logado(this) && !planoConta.isEmpty()) s = planoConta + "  ·  " + s;
-        if (secao == SECAO_NOVAS) s += "  ·  " + Catalogo.nomeDoPeriodo(prefs.diasNovas()) + " (toque no título para mudar)";
+        if (secao == SECAO_NOVAS) s += "  ·  " + Catalogo.nomeDoPeriodo(prefs.diasNovas());
         if (indexando && aIndexar > 0) s += "  ·  lendo informações " + Math.min(indexadas, aIndexar) + "/" + aIndexar;
         if (varrendo) s += "  ·  procurando músicas…";
         lblContagem.setText(s);
@@ -630,7 +631,7 @@ public class MainActivity extends Activity {
     // ------------------------------------------------------------------ player
     private void ligarPlayer() {
         player.setShuffleModeEnabled(false);  // o sorteio e feito aqui (assim "tocar a seguir" fica de fato a seguir)
-        player.setRepeatMode(prefs.repetir());
+        player.setRepeatMode(prefs.modoDoPlayer());
         PlaybackService.aoAlternarAleatorio = this::alternarAleatorio;
         player.addListener(new Player.Listener() {
             @Override
@@ -860,10 +861,8 @@ public class MainActivity extends Activity {
     }
 
     private void alternarRepetir() {
-        int novo = prefs.repetir() == Player.REPEAT_MODE_OFF ? Player.REPEAT_MODE_ALL
-                : prefs.repetir() == Player.REPEAT_MODE_ALL ? Player.REPEAT_MODE_ONE : Player.REPEAT_MODE_OFF;
-        prefs.repetir(novo);
-        if (player != null) player.setRepeatMode(novo);
+        prefs.repetindo(!prefs.repetindo());
+        if (player != null) player.setRepeatMode(prefs.modoDoPlayer());
         atualizarIcones();
     }
 
@@ -903,8 +902,7 @@ public class MainActivity extends Activity {
 
     private void atualizarIcones() {
         icAleatorio.definir(IconeView.ALEATORIO, prefs.embaralhar() ? ACENTO : ICONE);
-        int r = prefs.repetir();
-        icRepetir.definir(r == Player.REPEAT_MODE_ONE ? IconeView.REPETIR_UM : IconeView.REPETIR, r == Player.REPEAT_MODE_OFF ? ICONE : ACENTO);
+        icRepetir.definir(IconeView.REPETIR, prefs.repetindo() ? ACENTO : ICONE);
         PlaybackService.atualizarBotoes();
     }
 
@@ -1390,7 +1388,7 @@ public class MainActivity extends Activity {
             ui.post(() -> {
                 if (isFinishing()) return;
                 if (nuvem == null) {
-                    Toast.makeText(this, "Não consegui falar com a conta. Confira a internet e tente de novo.", Toast.LENGTH_LONG).show();
+                    Toast.makeText(this, Conta.erroDaSincronizacao.isEmpty() ? "Não consegui falar com a conta." : Conta.erroDaSincronizacao, Toast.LENGTH_LONG).show();
                     return;
                 }
                 if (!nuvem.isEmpty()) {
@@ -1403,7 +1401,7 @@ public class MainActivity extends Activity {
                 final String total = Sincronizacao.unir(Sincronizacao.montar(new java.util.LinkedHashSet<>(curtidas), locais), nuvem);
                 new Thread(() -> {
                     final boolean deu = Conta.enviarSincronizacao(this, total);
-                    ui.post(() -> Toast.makeText(this, deu ? "Sincronizado com a conta." : "Não consegui enviar para a conta.", Toast.LENGTH_LONG).show());
+                    ui.post(() -> Toast.makeText(this, deu ? "Sincronizado com a conta." : (Conta.erroDaSincronizacao.isEmpty() ? "Não consegui enviar para a conta." : Conta.erroDaSincronizacao), Toast.LENGTH_LONG).show());
                 }).start();
             });
         }).start();
@@ -1777,36 +1775,31 @@ public class MainActivity extends Activity {
             Toast.makeText(this, "Ainda separando esta música…", Toast.LENGTH_SHORT).show();
             return;
         }
-        final List<String> nomes = new ArrayList<>();
-        final List<Runnable> acoes = new ArrayList<>();
-        if (modoSeparado != null) {
-            nomes.add("Música original");
-            acoes.add(() -> voltarAoOriginal(f));
-        }
-        if (!Separador.INSTRUMENTAL.equals(modoSeparado)) {
-            nomes.add("Só o instrumental (sem voz)");
-            acoes.add(() -> usarSeparada(f, Separador.INSTRUMENTAL));
-        }
-        if (!Separador.VOZ.equals(modoSeparado)) {
-            nomes.add("Só a voz");
-            acoes.add(() -> usarSeparada(f, Separador.VOZ));
-        }
-        if (Separador.temporarias(this, f) && !Separador.salvas(this, f)) {
-            nomes.add("Salvar as faixas separadas");
-            acoes.add(() -> {
-                boolean ok = Separador.guardar(this, f);
-                Toast.makeText(this, ok ? "Faixas salvas. Da próxima vez a troca é imediata." : "Não consegui salvar.", Toast.LENGTH_SHORT).show();
-            });
-        }
+        final String[] nomes = {"Normal", "Vocal", "Instrumental"};
+        final String[] modos = {null, Separador.VOZ, Separador.INSTRUMENTAL};
+        final int marcado = modoSeparado == null ? 0 : Separador.VOZ.equals(modoSeparado) ? 1 : 2;
+        Construtor menu = new Construtor();
+        menu.setTitle("Separar faixa");
+        menu.setSingleChoiceItems(nomes, marcado, (d, qual) -> {
+            d.dismiss();
+            if (qual == marcado) return;
+            if (qual == 0) voltarAoOriginal(f);
+            else usarSeparada(f, modos[qual]);
+        });
         if (Separador.salvas(this, f)) {
-            nomes.add("Excluir as faixas salvas");
-            acoes.add(() -> {
+            menu.setNeutralButton("Excluir salvas", (d, q) -> {
                 if (modoSeparado != null) voltarAoOriginal(f);
                 Separador.excluirSalvas(this, f);
                 Toast.makeText(this, "Faixas excluídas.", Toast.LENGTH_SHORT).show();
             });
+        } else if (Separador.temporarias(this, f)) {
+            menu.setNeutralButton("Salvar faixas", (d, q) -> {
+                boolean ok = Separador.guardar(this, f);
+                Toast.makeText(this, ok ? "Faixas salvas. Da próxima vez a troca é imediata." : "Não consegui salvar.", Toast.LENGTH_SHORT).show();
+            });
         }
-        new Construtor().setTitle("Separar o áudio (só desta vez)").setItems(nomes.toArray(new String[0]), (d, qual) -> acoes.get(qual).run()).show();
+        menu.setNegativeButton("Fechar", null);
+        menu.show();
     }
 
     private void usarSeparada(final Faixa f, final String modo) {
@@ -2627,7 +2620,10 @@ public class MainActivity extends Activity {
         boolean liberado = Conta.liberado(this);
         telaBloqueio.setVisibility(liberado ? View.GONE : View.VISIBLE);
         if (liberado) return;
-        if (player != null && player.isConnected() && player.isPlaying()) player.pause();
+        if (player != null && player.isConnected()) {  // sem licença nada toca nem fica na notificação
+            player.stop();
+            player.clearMediaItems();
+        }
         boolean logado = Conta.logado(this);
         blocoEntrada.setVisibility(logado ? View.GONE : View.VISIBLE);
         blocoSemLicenca.setVisibility(logado ? View.VISIBLE : View.GONE);
@@ -2670,11 +2666,11 @@ public class MainActivity extends Activity {
         blocoEntrada = new LinearLayout(this);
         blocoEntrada.setOrientation(LinearLayout.VERTICAL);
         bloqueioUsuario = campoDaConta("Usuário ou e-mail", false);
-        bloqueioNome = campoDaConta("Usuário (3 a 20 letras, números, ponto ou _)", false);
+        bloqueioNome = campoDaConta("Usuário", false);
         bloqueioCodigo = campoDaConta("Código do e-mail", false);
         bloqueioCodigo.setInputType(InputType.TYPE_CLASS_NUMBER);
         bloqueioSenha = campoDaConta("Senha", true);
-        bloqueioChave = campoDaConta("Chave da licença (opcional, pode ser depois)", false);
+        bloqueioChave = campoDaConta("Chave da licença (opcional)", false);
         bloqueioChave.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS);
         for (EditText campo : new EditText[]{bloqueioUsuario, bloqueioNome, bloqueioCodigo, bloqueioSenha, bloqueioChave}) {
             LinearLayout.LayoutParams pc = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50));
@@ -2773,7 +2769,7 @@ public class MainActivity extends Activity {
         btnBloqEsqueci.setText(codigo || redefinir ? "Voltar" : "Esqueci a senha");
         btnBloqEsqueci.setVisibility(criar ? View.GONE : View.VISIBLE);
         if (codigo || redefinir) lblBloqueio.setText("Enviamos um código para " + emailPendente + ". Digite-o" + (redefinir ? " e escolha a nova senha." : " para ativar a conta."));
-        else if (criar) lblBloqueio.setText("Crie a sua conta. A licença é opcional: dá para ativar depois.");
+        else if (criar) lblBloqueio.setText("Crie a sua conta. A licença é opcional.");
         else lblBloqueio.setText("Entre com a sua conta do Raccoon Music para usar o app.");
     }
 
@@ -3065,8 +3061,7 @@ public class MainActivity extends Activity {
             }
         }
         if (todas.isEmpty()) return;
-        carrosselDoInicio(c, "Músicas novas", Catalogo.novas(todas, System.currentTimeMillis(), prefs.diasNovas()), SECAO_NOVAS,
-                Catalogo.nomeDoPeriodo(prefs.diasNovas()), this::menuDoPeriodoDasNovas);
+        carrosselDoInicio(c, "Músicas novas", Catalogo.novas(todas, System.currentTimeMillis(), prefs.diasNovas()), SECAO_NOVAS, null, null);
         carrosselDoInicio(c, "Tocadas recentemente", historico.recentes(todas, LIMITE_DAS_LISTAS), SECAO_RECENTES, null, null);
         carrosselDoInicio(c, "Mais tocadas", historico.maisTocadas(todas, LIMITE_DAS_LISTAS), SECAO_MAIS, null, null);
         carrosselDoInicio(c, "Menos tocadas", historico.menosTocadas(todas, LIMITE_DAS_LISTAS), SECAO_MENOS, null, null);
@@ -3080,6 +3075,7 @@ public class MainActivity extends Activity {
         new Construtor().setTitle("Músicas novas: período").setItems(nomes, (d, qual) -> {
             prefs.diasNovas(Integer.parseInt(Catalogo.PERIODOS[qual][0]));
             aplicarFiltro();
+            atualizarCabecalho();
         }).show();
     }
 
@@ -3164,7 +3160,7 @@ public class MainActivity extends Activity {
     }
 
     private void carrosselDoInicio(LinearLayout pai, String titulo, final List<Faixa> faixas, final int destino, String chip, final Runnable aoChip) {
-        if (faixas.isEmpty() && aoChip == null) return;
+        if (faixas.isEmpty() && destino != SECAO_NOVAS) return;
         LinearLayout cab = new LinearLayout(this);
         cab.setGravity(Gravity.CENTER_VERTICAL);
         cab.setPadding(0, dp(14), 0, dp(8));
@@ -3186,7 +3182,7 @@ public class MainActivity extends Activity {
         pai.addView(cab);
         if (faixas.isEmpty()) {
             TextView vazio = texto(13, SUAVE, false);
-            vazio.setText("Nenhuma música baixada neste período.");
+            vazio.setText("Nenhuma música baixada neste período (Ver tudo permite mudar).");
             pai.addView(vazio);
             return;
         }
@@ -3240,6 +3236,10 @@ public class MainActivity extends Activity {
     private void atualizarCabecalho() {
         icMenu.definir(secao == SECAO_COLECAO ? IconeView.SETA : IconeView.MENU, TEXTO);
         celulaMais.setVisibility(secao == SECAO_PLAYLISTS ? View.VISIBLE : View.GONE);
+        if (btnPeriodo != null) {
+            btnPeriodo.setVisibility(secao == SECAO_NOVAS ? View.VISIBLE : View.GONE);
+            btnPeriodo.setText(Catalogo.nomeDoPeriodo(prefs.diasNovas()) + " ▾");
+        }
         if (caixaDaBusca != null) caixaDaBusca.setVisibility(secao == SECAO_INICIO ? View.GONE : View.VISIBLE);
         celulaAleatorio.setVisibility(todas.isEmpty() || (secao != SECAO_MUSICAS && secao != SECAO_CURTIDAS) ? View.GONE : View.VISIBLE);
         if (bFiltro != null) bFiltro.setVisibility(secao == SECAO_MUSICAS ? View.VISIBLE : View.GONE);
@@ -3683,14 +3683,17 @@ public class MainActivity extends Activity {
         LinearLayout titulos = new LinearLayout(this);
         titulos.setOrientation(LinearLayout.VERTICAL);
         lblSecao = texto(22, TEXTO, true);
-        lblSecao.setOnClickListener(v -> {
-            if (secao == SECAO_NOVAS) menuDoPeriodoDasNovas();
-        });
         lblSecao.setText(NOMES_SECAO[secao]);
         lblContagem = texto(13, SUAVE, false);
         titulos.addView(lblSecao);
         titulos.addView(lblContagem);
         cab.addView(titulos, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        btnPeriodo = texto(13, ACENTO, true);
+        btnPeriodo.setPadding(dp(12), dp(8), dp(12), dp(8));
+        btnPeriodo.setBackground(forma(CARTAO, 16, LINHA));
+        btnPeriodo.setOnClickListener(v -> menuDoPeriodoDasNovas());
+        btnPeriodo.setVisibility(View.GONE);
+        cab.addView(btnPeriodo);
         celulaMais = new FrameLayout(this);
         icone(IconeView.MAIS, 26, () -> novaPlaylist(null), celulaMais).definir(IconeView.MAIS, TEXTO);
         celulaMais.setVisibility(View.GONE);
@@ -4109,7 +4112,7 @@ public class MainActivity extends Activity {
         LinearLayout aLetra = acaoRapida(IconeView.LETRA, "Letra", this::alternarLetra);
         icLetra = (IconeView) aLetra.getChildAt(0);
         acoes.addView(aLetra, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        LinearLayout aVoz = acaoRapida(IconeView.SEPARAR, "Voz", this::menuDeSeparar);
+        LinearLayout aVoz = acaoRapida(IconeView.SEPARAR, "Faixa", this::menuDeSeparar);
         icSeparar = (IconeView) aVoz.getChildAt(0);
         acoes.addView(aVoz, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         acoes.addView(acaoRapida(IconeView.FILA, "Fila", this::mostrarFila), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
@@ -4232,9 +4235,6 @@ public class MainActivity extends Activity {
         itemTemporizador = rotuloDoItem(linhaTemporizador);
         adicionarItem(itens, linhaTemporizador);
         adicionarTitulo(itens, "Aplicativo");
-        LinearLayout linhaConta = itemDoMenu("Entrar na conta", IconeView.ARTISTA, this::menuDaConta);
-        itemConta = rotuloDoItem(linhaConta);
-        adicionarItem(itens, linhaConta);
         adicionarItem(itens, itemDoMenu("Ajustes", IconeView.AJUSTES, this::menuDeAjustes));
         adicionarItem(itens, itemDoMenu("Atualizar a biblioteca", IconeView.ATUALIZAR, this::atualizarBiblioteca));
         adicionarItem(itens, itemDoMenu("Escolher outra pasta", IconeView.PASTA, this::escolherPasta));
@@ -4243,6 +4243,9 @@ public class MainActivity extends Activity {
             itemVersao = rotuloDoItem(linhaVersao);
             adicionarItem(itens, linhaVersao);
         }
+        LinearLayout linhaConta = itemDoMenu("Entrar na conta", IconeView.ARTISTA, this::menuDaConta);
+        itemConta = rotuloDoItem(linhaConta);
+        adicionarItem(itens, linhaConta);
         rolagem.addView(itens);
         g.addView(rolagem, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
@@ -4869,8 +4872,7 @@ public class MainActivity extends Activity {
 
     private void aplicarIconesIniciais() {
         icAleatorio.definir(IconeView.ALEATORIO, prefs.embaralhar() ? ACENTO : ICONE);
-        int r = prefs.repetir();
-        icRepetir.definir(r == Player.REPEAT_MODE_ONE ? IconeView.REPETIR_UM : IconeView.REPETIR, r == Player.REPEAT_MODE_OFF ? ICONE : ACENTO);
+        icRepetir.definir(IconeView.REPETIR, prefs.repetindo() ? ACENTO : ICONE);
         icPlay.definir(IconeView.PLAY, 0xFFFFFFFF);
     }
 
