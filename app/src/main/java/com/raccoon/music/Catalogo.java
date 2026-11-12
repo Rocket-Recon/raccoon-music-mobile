@@ -32,6 +32,26 @@ public final class Catalogo {
         return r;
     }
 
+    /** Períodos de "Músicas novas": {dias, nome}. */
+    public static final String[][] PERIODOS = {{"7", "1 semana"}, {"30", "1 mês"}, {"90", "3 meses"}, {"180", "6 meses"}, {"365", "1 ano"}};
+
+    public static String nomeDoPeriodo(int dias) {
+        String[] melhor = PERIODOS[0];
+        for (String[] p : PERIODOS) {
+            if (Math.abs(Integer.parseInt(p[0]) - dias) < Math.abs(Integer.parseInt(melhor[0]) - dias)) melhor = p;
+        }
+        return melhor[1];
+    }
+
+    /** As músicas gravadas nos últimos `dias` dias (a mais nova primeiro); as sem data conhecida ficam de fora. */
+    public static List<Faixa> novas(List<Faixa> todas, long agoraMs, int dias) {
+        long corte = agoraMs - dias * 86_400_000L;
+        List<Faixa> r = new ArrayList<>();
+        for (Faixa f : todas) if (f.data > 0 && f.data >= corte) r.add(f);
+        Collections.sort(r, (a, b) -> a.data != b.data ? Long.compare(b.data, a.data) : a.chave.compareTo(b.chave));
+        return r;
+    }
+
     /** Todas as palavras digitadas precisam aparecer (em qualquer ordem, sem ligar para acento nem maiuscula). */
     public static List<Faixa> filtrar(List<Faixa> todas, String texto, Set<String> curtidas, boolean soCurtidas) {
         String[] palavras = Faixa.normalizar(texto).split(" ");

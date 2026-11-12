@@ -131,7 +131,7 @@ public final class CapaOficial {
             Oficial o = new Oficial();
             o.artista = quem;
             o.titulo = nome;
-            o.album = r.optString("collectionName", "");
+            o.album = AlbumPadrao.limpar(r.optString("collectionName", ""));
             o.genero = r.optString("primaryGenreName", "");
             String data = r.optString("releaseDate", "");
             o.ano = data.length() >= 4 ? data.substring(0, 4) : "";
@@ -174,7 +174,7 @@ public final class CapaOficial {
                 Oficial o = new Oficial();
                 o.artista = quem;
                 o.titulo = g.optString("title", "");
-                o.album = l.optString("title", "");
+                o.album = AlbumPadrao.limpar(l.optString("title", ""));
                 String data = l.optString("date", "");
                 o.ano = data.length() >= 4 ? data.substring(0, 4) : "";
                 o.capa = "https://coverartarchive.org/release-group/" + id + "/front-500";

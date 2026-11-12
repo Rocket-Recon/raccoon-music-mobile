@@ -10,7 +10,7 @@ import android.view.View;
 /** Os icones do player, desenhados no codigo (assim nao dependem de nenhuma imagem nem de fonte de emoji). */
 public final class IconeView extends View {
     public static final int PLAY = 0, PAUSE = 1, PROXIMA = 2, ANTERIOR = 3, ALEATORIO = 4, REPETIR = 5, REPETIR_UM = 6, CORACAO = 7, CORACAO_CHEIO = 8, MENU = 9, SETA = 10, BAIXO = 11, FECHAR = 12, MAIS = 13, PONTOS = 14, FILA = 15, LETRA = 16, PLAYLIST_MAIS = 17, NOTA = 18, RELOGIO = 19,
-            ARTISTA = 20, DISCO = 21, ETIQUETA = 22, PLAYLIST = 23, ESTRELA = 24, ESTATISTICA = 25, EXPORTAR = 26, COMPUTADOR = 27, DOWNLOAD = 28, AJUSTES = 29, PASTA = 30, ATUALIZAR = 31, LISTA = 32, CASA = 33;
+            ARTISTA = 20, DISCO = 21, ETIQUETA = 22, PLAYLIST = 23, ESTRELA = 24, ESTATISTICA = 25, EXPORTAR = 26, COMPUTADOR = 27, DOWNLOAD = 28, AJUSTES = 29, PASTA = 30, ATUALIZAR = 31, LISTA = 32, CASA = 33, SEPARAR = 34;
 
     private int tipo;
     private int cor = 0xFFC8C8D0;
@@ -44,6 +44,7 @@ public final class IconeView extends View {
             case PONTOS: return "Mais opções";
             case FILA: return "Fila";
             case LETRA: return "Letra";
+            case SEPARAR: return "Separar voz";
             case PLAYLIST_MAIS: return "Adicionar à playlist";
             case RELOGIO: return "Temporizador";
             case ARTISTA: return "Artistas";
@@ -217,6 +218,13 @@ public final class IconeView extends View {
                 linha(c, 5, 7, 19, 7);
                 linha(c, 8, 12, 16, 12);
                 linha(c, 5, 17, 19, 17);
+                break;
+            case SEPARAR:
+                linha(c, 5, 10, 5, 14);
+                linha(c, 9, 6, 9, 18);
+                linha(c, 13, 3, 13, 21);
+                linha(c, 17, 8, 17, 16);
+                linha(c, 21, 11, 21, 13);
                 break;
             case PLAYLIST_MAIS:
                 linha(c, 4, 6, 15, 6);

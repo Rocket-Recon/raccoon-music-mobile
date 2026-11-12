@@ -138,6 +138,152 @@ public final class Conta {
         }
     }
 
+    // ------------------------------------------------------------------ criar conta, código do e-mail e senha esquecida
+    /** Devolvido por {@link #cadastrar} e {@link #recuperarSenha} quando falta digitar o código que chegou por e-mail. */
+    public static final String PEDE_CODIGO = "@codigo";
+
+    public static String validarEmail(String email) {
+        String e = email == null ? "" : email.trim();
+        return e.matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]{2,}$") ? "" : "Digite um e-mail válido.";
+    }
+
+    public static String validarUsuario(String usuario) {
+        String u = usuario == null ? "" : usuario.trim().toLowerCase(Locale.ROOT);
+        return u.matches("^[a-z0-9_.]{3,20}$") ? "" : "Usuário: 3 a 20 caracteres, só letras, números, ponto e sublinhado.";
+    }
+
+    public static String validarSenha(String senha) {
+        String s = senha == null ? "" : senha;
+        if (s.length() < 8) return "A senha precisa ter pelo menos 8 caracteres.";
+        if (s.matches("^[0-9]+$") || s.matches("^\\p{L}+$")) return "Misture letras e números na senha.";
+        return "";
+    }
+
+    private static String erroDeCadastro(JSONObject o, int status) {
+        String codigo = o.optString("error_code", o.optString("code", o.optString("error", "")));
+        if ("user_already_exists".equals(codigo) || "email_exists".equals(codigo)) return "Já existe uma conta com este e-mail.";
+        if ("weak_password".equals(codigo)) return "Senha fraca. Use pelo menos 8 caracteres, com letras e números.";
+        if ("over_email_send_rate_limit".equals(codigo)) return "Muitos e-mails enviados. Espere alguns minutos.";
+        if ("otp_expired".equals(codigo)) return "Código incorreto ou vencido.";
+        if ("signup_disabled".equals(codigo)) return "Novos cadastros estão desligados no momento.";
+        if (status == 429) return "Muitas tentativas. Espere alguns minutos.";
+        if (status >= 500) return "O servidor está com problema. Tente de novo em instantes.";
+        return "Não foi possível concluir. Confira os dados e tente de novo.";
+    }
+
+    /** Cria a conta. null = criada e já aberta; {@link #PEDE_CODIGO} = falta o código do e-mail; outro texto = erro. */
+    public static String cadastrar(Context c, String email, String usuario, String senha) {
+        String erro = validarEmail(email);
+        if (erro.isEmpty()) erro = validarUsuario(usuario);
+        if (erro.isEmpty()) erro = validarSenha(senha);
+        if (!erro.isEmpty()) return erro;
+        try {
+            Resposta r = http("POST", URL_BASE + "/auth/v1/signup", null, new JSONObject()
+                    .put("email", email.trim()).put("password", senha)
+                    .put("data", new JSONObject().put("username", usuario.trim().toLowerCase(Locale.ROOT))).toString());
+            if (r.status == 0) return "Sem conexão com a internet.";
+            JSONObject o = objeto(r.corpo);
+            if (r.status >= 400) return erroDeCadastro(o, r.status);
+            if (o.has("access_token")) {
+                guardar(c, o);
+                return null;
+            }
+            return PEDE_CODIGO;
+        } catch (Exception e) {
+            return "Não foi possível criar a conta agora.";
+        }
+    }
+
+    /** Confere o código do e-mail (tipo "signup" ou "recovery") e abre a conta. null = deu certo. */
+    public static String confirmarCodigo(Context c, String email, String codigo, String tipo) {
+        String cod = codigo == null ? "" : codigo.trim().replace(" ", "");
+        if (cod.isEmpty()) return "Digite o código que chegou no seu e-mail.";
+        try {
+            Resposta r = http("POST", URL_BASE + "/auth/v1/verify", null, new JSONObject()
+                    .put("type", tipo).put("email", email == null ? "" : email.trim()).put("token", cod).toString());
+            if (r.status == 0) return "Sem conexão com a internet.";
+            JSONObject o = objeto(r.corpo);
+            if (r.status >= 400 || !o.has("access_token")) return "Código incorreto ou vencido.";
+            guardar(c, o);
+            return null;
+        } catch (Exception e) {
+            return "Não foi possível confirmar agora.";
+        }
+    }
+
+    /** Pede de novo o código de ativação da conta. null = enviado. */
+    public static String reenviarCodigo(String email) {
+        String erro = validarEmail(email);
+        if (!erro.isEmpty()) return erro;
+        try {
+            Resposta r = http("POST", URL_BASE + "/auth/v1/resend", null,
+                    new JSONObject().put("type", "signup").put("email", email.trim()).toString());
+            if (r.status == 0) return "Sem conexão com a internet.";
+            return r.status >= 400 ? erroDeCadastro(objeto(r.corpo), r.status) : null;
+        } catch (Exception e) {
+            return "Não foi possível reenviar agora.";
+        }
+    }
+
+    /** "Esqueci a senha": manda o código para o e-mail (sem revelar se a conta existe). null = enviado. */
+    public static String recuperarSenha(String email) {
+        String erro = validarEmail(email);
+        if (!erro.isEmpty()) return erro;
+        try {
+            Resposta r = http("POST", URL_BASE + "/auth/v1/recover", null, new JSONObject().put("email", email.trim()).toString());
+            if (r.status == 0) return "Sem conexão com a internet.";
+            return r.status >= 400 ? erroDeCadastro(objeto(r.corpo), r.status) : null;
+        } catch (Exception e) {
+            return "Não foi possível enviar agora.";
+        }
+    }
+
+    /** Confere o código do e-mail e grava a senha nova; a conta já fica aberta. null = deu certo. */
+    public static String redefinirSenha(Context c, String email, String codigo, String novaSenha) {
+        String erro = validarSenha(novaSenha);
+        if (!erro.isEmpty()) return erro;
+        erro = confirmarCodigo(c, email, codigo, "recovery");
+        if (erro != null) return erro;
+        try {
+            Resposta r = http("PUT", URL_BASE + "/auth/v1/user", acesso, new JSONObject().put("password", novaSenha).toString());
+            if (r.status == 0) return "Sem conexão com a internet.";
+            if (r.status >= 400) return erroDeCadastro(objeto(r.corpo), r.status);
+            return null;
+        } catch (Exception e) {
+            return "Não foi possível trocar a senha agora.";
+        }
+    }
+
+    // ------------------------------------------------------------------ licença: ativar depois
+    /** Liga uma chave de licença à conta aberta. null = ativada. */
+    public static String ativarChave(Context c, String chave) {
+        String k = chave == null ? "" : chave.trim();
+        if (k.isEmpty()) return "Digite a chave da licença.";
+        String t = token(c);
+        if (t == null) return "Entre na conta para ativar a licença.";
+        try {
+            String id = android.provider.Settings.Secure.getString(c.getContentResolver(), android.provider.Settings.Secure.ANDROID_ID);
+            Resposta r = http("POST", URL_BASE + "/rest/v1/rpc/resgatar_licenca", t,
+                    new JSONObject().put("p_chave", k).put("p_hwid", "android-" + (id == null ? "" : id)).toString());
+            if (r.status == 0) return "Sem conexão com a internet.";
+            if (r.status >= 400) return "Não foi possível ativar agora. Tente de novo.";
+            JSONObject o = objeto(r.corpo);
+            if (o.optBoolean("ok", false)) return null;
+            return o.optString("motivo", "Chave inválida.");
+        } catch (Exception e) {
+            return "Não foi possível ativar agora.";
+        }
+    }
+
+    /** O app foi aberto sem licença ("colocar depois"): segue no modo grátis até a licença ser ativada. */
+    public static boolean semLicenca(Context c) {
+        return prefs(c).getBoolean("sem_licenca", false);
+    }
+
+    public static void usarSemLicenca(Context c, boolean usar) {
+        prefs(c).edit().putBoolean("sem_licenca", usar).apply();
+    }
+
     public static void sair(Context c) {
         acesso = "";
         expiraEm = 0L;
@@ -199,7 +345,7 @@ public final class Conta {
 
     /** O app está liberado: conta aberta e licença confirmada dentro do prazo sem internet (ou até o fim da licença). */
     public static boolean liberado(Context c) {
-        return logado(c) && prefs(c).getLong("valida_ate", 0L) > System.currentTimeMillis();
+        return logado(c) && (semLicenca(c) || prefs(c).getLong("valida_ate", 0L) > System.currentTimeMillis());
     }
 
     /** Última descrição do plano confirmada ("Premium vitalício", "Premium até 31/12/2026", "Modo grátis"). */
@@ -269,7 +415,7 @@ public final class Conta {
                 }
             }
             if (valida > 0L) {
-                prefs(c).edit().putString("plano", plano).putLong("valida_ate", valida).apply();
+                prefs(c).edit().putString("plano", plano).putLong("valida_ate", valida).putBoolean("sem_licenca", false).apply();
                 return "ok";
             }
             prefs(c).edit().putString("plano", "Modo grátis").putLong("valida_ate", 0L).apply();

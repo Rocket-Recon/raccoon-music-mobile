@@ -44,6 +44,9 @@ public final class LetraView extends View {
     private StaticLayout[] comuns = new StaticLayout[0];
     private StaticLayout[] destaques = new StaticLayout[0];
     private StaticLayout aviso;
+    private String[] traduzidas;
+    private StaticLayout[] traducoes = new StaticLayout[0];
+    private final TextPaint tintaTraducao = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     private int corTexto = 0xFFFFFFFF;
     private int corDestaque = 0xFFFFFFFF;
     private AoTocarLinha aoTocar;
@@ -80,6 +83,7 @@ public final class LetraView extends View {
         tintaComum.setTypeface(Typeface.DEFAULT_BOLD);
         tintaDestaque.setTypeface(Typeface.DEFAULT_BOLD);
         tintaMensagem.setTypeface(Typeface.DEFAULT);
+        tintaTraducao.setTypeface(Typeface.DEFAULT);
         tintaMensagem.setColor(0xCCFFFFFF);
         tintaMensagem.setTextSize(16f * densidade);
         definirTamanho(22f);
@@ -91,6 +95,7 @@ public final class LetraView extends View {
         tamanho = px;
         tintaComum.setTextSize(px);
         tintaDestaque.setTextSize(px * AUMENTO_DA_LINHA_CANTADA);
+        tintaTraducao.setTextSize(px * 0.8f);
         larguraCalculada = -1;
         int guardada = atual;
         atual = -2;
@@ -108,6 +113,14 @@ public final class LetraView extends View {
         invalidate();
     }
 
+    /** Tradução mostrada abaixo de cada linha (mesma quantidade de linhas da letra); null volta à letra original. */
+    public void definirTraducao(String[] t) {
+        traduzidas = t;
+        larguraCalculada = -1;
+        aviso = null;
+        invalidate();
+    }
+
     public void aoTocarLinha(AoTocarLinha ouvinte) {
         aoTocar = ouvinte;
     }
@@ -115,6 +128,7 @@ public final class LetraView extends View {
     /** Troca a letra: `sincronizada` indica que cada linha tem o seu momento (a linha cantada acompanha a música). */
     public void definir(String[] novas, boolean temTempo, String texto) {
         linhas = novas == null ? new String[0] : novas;
+        traduzidas = null;
         sincronizada = temTempo && linhas.length > 0;
         mensagem = texto == null ? "" : texto;
         atual = -1;
@@ -166,6 +180,7 @@ public final class LetraView extends View {
         int n = linhas.length;
         comuns = new StaticLayout[n];
         destaques = new StaticLayout[n];
+        traducoes = new StaticLayout[n];
         topos = new float[n];
         alturas = new float[n];
         float topo = 40f * densidade;
@@ -175,6 +190,10 @@ public final class LetraView extends View {
             comuns[i] = montar(texto, tintaComum, largura);
             destaques[i] = montar(texto, tintaDestaque, largura);
             float altura = destaques[i].getHeight() + 2 * folga;  // altura pela fonte maior: a linha cantada nunca é cortada
+            if (traduzidas != null && i < traduzidas.length && !traduzidas[i].trim().isEmpty()) {
+                traducoes[i] = montar(traduzidas[i], tintaTraducao, largura);
+                altura += traducoes[i].getHeight() + 4 * densidade;
+            }
             topos[i] = topo;
             alturas[i] = altura;
             topo += altura;
@@ -224,10 +243,20 @@ public final class LetraView extends View {
             else alfa = Math.abs(i - atual) == 1 ? 150 : 100;
             layout.getPaint().setColor(cantada ? corDestaque : corTexto);
             layout.getPaint().setAlpha(alfa);
+            StaticLayout trad = i < traducoes.length ? traducoes[i] : null;
+            float extra = trad == null ? 0f : trad.getHeight() + 4 * densidade;
             c.save();
-            c.translate(margem, topo + (alturas[i] - layout.getHeight()) / 2f);
+            c.translate(margem, topo + (alturas[i] - layout.getHeight() - extra) / 2f);
             layout.draw(c);
             c.restore();
+            if (trad != null) {
+                trad.getPaint().setColor(cantada ? corDestaque : corTexto);
+                trad.getPaint().setAlpha(Math.round(alfa * 0.8f));
+                c.save();
+                c.translate(margem, topo + (alturas[i] - layout.getHeight() - extra) / 2f + layout.getHeight() + 4 * densidade);
+                trad.draw(c);
+                c.restore();
+            }
         }
     }
 

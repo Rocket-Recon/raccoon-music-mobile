@@ -79,6 +79,31 @@ public final class Historico {
         return r;
     }
 
+    /** As menos tocadas entre as que já tocaram ao menos uma vez, da menos para a mais (empate: a mais antiga primeiro). */
+    public List<Faixa> menosTocadas(List<Faixa> todas, int limite) {
+        Map<String, Faixa> por = porChave(todas);
+        List<String> chaves = new ArrayList<>();
+        for (String k : vezes.keySet()) if (por.containsKey(k) && vezes(k) > 0) chaves.add(k);
+        Collections.sort(chaves, (a, b) -> {
+            int c = Integer.compare(vezes(a), vezes(b));
+            if (c != 0) return c;
+            return Long.compare(ultima.containsKey(a) ? ultima.get(a) : 0L, ultima.containsKey(b) ? ultima.get(b) : 0L);
+        });
+        List<Faixa> r = new ArrayList<>();
+        for (String k : chaves) {
+            if (r.size() >= limite) break;
+            r.add(por.get(k));
+        }
+        return r;
+    }
+
+    /** As que nunca tocaram (qualquer quantidade), na ordem da biblioteca. */
+    public List<Faixa> nuncaTocadas(List<Faixa> todas) {
+        List<Faixa> r = new ArrayList<>();
+        for (Faixa f : todas) if (vezes(f.chave) <= 0) r.add(f);
+        return r;
+    }
+
     /** As tocadas por ultimo primeiro. */
     public List<Faixa> recentes(List<Faixa> todas, int limite) {
         Map<String, Faixa> por = porChave(todas);

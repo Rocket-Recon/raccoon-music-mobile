@@ -118,6 +118,53 @@ public final class Letras {
         }
     }
 
+    /** Uma letra encontrada no lrclib que pode ser a desta música. */
+    public static final class Candidata {
+        public String artista = "", titulo = "", simples = "", sinc = "";
+        public int duracao;
+    }
+
+    /** Respostas parecidas do lrclib para a música (até 12), com tempo primeiro. Chamar fora da thread da tela. */
+    public static java.util.List<Candidata> candidatas(Faixa f) {
+        java.util.List<Candidata> r = new java.util.ArrayList<>();
+        try {
+            String t = pegar("https://lrclib.net/api/search?q=" + q((f.artista + " " + limpar(f.titulo)).trim()));
+            if (t == null) return r;
+            JSONArray lista = new JSONArray(t);
+            for (int i = 0; i < lista.length() && r.size() < 12; i++) {
+                JSONObject o = lista.getJSONObject(i);
+                if (!temLetra(o)) continue;
+                Candidata c = new Candidata();
+                c.artista = o.optString("artistName", "");
+                c.titulo = o.optString("trackName", "");
+                c.duracao = (int) Math.round(o.optDouble("duration", 0));
+                String sinc = daRespostaSinc(o);
+                String simples = daResposta(o);
+                if (simples == null && sinc != null) simples = Lrc.semTempos(sinc);
+                c.simples = simples == null ? "" : simples;
+                c.sinc = sinc == null ? "" : sinc;
+                r.add(c);
+            }
+        } catch (Exception e) {
+            // sem conexão: lista vazia
+        }
+        java.util.Collections.sort(r, (a, b) -> Integer.compare(a.sinc.isEmpty() ? 1 : 0, b.sinc.isEmpty() ? 1 : 0));
+        return r;
+    }
+
+    /** Guarda a letra escolhida como a desta música. */
+    public static void usar(Context c, Faixa f, Candidata escolhida) {
+        gravar(arquivo(c, f), escolhida.simples);
+        if (!escolhida.sinc.isEmpty()) {
+            gravar(arquivoSinc(c, f), escolhida.sinc);
+            marcaSemSinc(c, f).delete();
+        } else {
+            arquivoSinc(c, f).delete();
+            gravar(marcaSemSinc(c, f), "-");
+        }
+        gravar(marcaPorDuracao(c, f), "-");
+    }
+
     /** Letra da internet; null se nao achou ou se nao deu para conectar. Guarda no celular (a de ler e a com tempo, quando existe). */
     public static String buscar(Context c, Faixa f) {
         return buscar(c, f, 0L);

@@ -61,7 +61,7 @@ public final class Etiquetas {
         for (Faixa f : faixas) {
             Info i = por.get(f.uri);
             if (i == null) continue;
-            String nome = porGenero ? generoLegivel(i.genero) : i.album;
+            String nome = porGenero ? generoLegivel(i.genero) : AlbumPadrao.limpar(i.album);
             if (nome.isEmpty()) continue;
             String k = Faixa.normalizar(nome);
             if (!m.containsKey(k)) {

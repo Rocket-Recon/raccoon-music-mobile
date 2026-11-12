@@ -7,6 +7,7 @@ import android.os.Looper;
 
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
+import androidx.media3.common.ForwardingPlayer;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.Player;
 import androidx.media3.exoplayer.ExoPlayer;
@@ -75,10 +76,50 @@ public class PlaybackService extends MediaSessionService {
                 atualizarWidget();
             }
         });
-        sessao = new MediaSession.Builder(this, player)
+        sessao = new MediaSession.Builder(this, new PlayerComBotoesFixos(player))
                 .setCallback(new Retorno())
                 .setCustomLayout(botoes())
                 .build();
+    }
+
+    /**
+     * Mantém "anterior" e "próxima" sempre disponíveis. Sem a próxima (última da fila) o sistema remaneja os botões da
+     * notificação e a ordem de aleatório/repetir muda; aqui a próxima da última volta ao começo da fila.
+     */
+    private static final class PlayerComBotoesFixos extends ForwardingPlayer {
+        PlayerComBotoesFixos(Player p) {
+            super(p);
+        }
+
+        @Override
+        public Player.Commands getAvailableCommands() {
+            Player.Commands base = super.getAvailableCommands();
+            if (getMediaItemCount() == 0) return base;
+            return base.buildUpon().addAll(COMMAND_SEEK_TO_NEXT, COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
+                    COMMAND_SEEK_TO_PREVIOUS, COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM).build();
+        }
+
+        @Override
+        public boolean isCommandAvailable(int comando) {
+            return getAvailableCommands().contains(comando);
+        }
+
+        @Override
+        public boolean hasNextMediaItem() {
+            return getMediaItemCount() > 0;
+        }
+
+        @Override
+        public void seekToNext() {
+            if (super.hasNextMediaItem()) super.seekToNext();
+            else if (getMediaItemCount() > 0) seekTo(0, C.TIME_UNSET);
+        }
+
+        @Override
+        public void seekToNextMediaItem() {
+            if (super.hasNextMediaItem()) super.seekToNextMediaItem();
+            else if (getMediaItemCount() > 0) seekTo(0, C.TIME_UNSET);
+        }
     }
 
     /** Passa a música de agora e o estado (tocando ou pausado) ao widget da tela inicial. */

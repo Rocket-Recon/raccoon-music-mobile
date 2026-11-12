@@ -58,6 +58,8 @@ public final class Preferencias {
     /** 0 = banda, 1 = título, 2 = adicionadas recentemente (chave nova: a antiga tinha "mais longas" no meio). */
     public int ordem() { return sp.getInt("ordem2", 0); }
     public void ordem(int v) { sp.edit().putInt("ordem2", v).apply(); }
+    public int diasNovas() { return sp.getInt("dias_novas", 7); }
+    public void diasNovas(int v) { sp.edit().putInt("dias_novas", v).apply(); }
     public boolean ordemInvertida() { return sp.getBoolean("ordem_invertida", false); }
     public void ordemInvertida(boolean v) { sp.edit().putBoolean("ordem_invertida", v).apply(); }
 
