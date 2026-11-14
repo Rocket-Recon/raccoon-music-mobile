@@ -135,6 +135,45 @@ public final class Baixador {
         return v.isEmpty() ? "NA" : v;
     }
 
+    private static final java.util.Map<String, String> buscas = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /**
+     * Pedido por nome ("ytsearch1:..."): lista os primeiros resultados e escolhe o que parece a gravacao original
+     * (descarta ao vivo, cover, remix, clipes curtos ou longos demais). Se a lista nao vier, segue com o primeiro resultado.
+     */
+    static String resolver(Context contexto, String entrada) {
+        if (!entrada.startsWith("ytsearch1:")) return entrada;
+        String pedido = entrada.substring("ytsearch1:".length()).trim();
+        String guardado = buscas.get(pedido);
+        if (guardado != null) return guardado;
+        try {
+            YoutubeDLRequest busca = new YoutubeDLRequest("ytsearch10:" + pedido);
+            busca.addOption("--flat-playlist");
+            busca.addOption("--dump-json");
+            List<Escolha.Candidato> lista = new ArrayList<>();
+            for (String linha : executar(contexto, busca).split("\\r?\\n")) {
+                String l = linha.trim();
+                if (!l.startsWith("{")) continue;
+                JSONObject o = new JSONObject(l);
+                String id = o.isNull("id") ? "" : o.optString("id", "");
+                if (id.isEmpty()) continue;
+                String canal = o.isNull("channel") ? (o.isNull("uploader") ? "" : o.optString("uploader", "")) : o.optString("channel", "");
+                lista.add(new Escolha.Candidato(id, o.isNull("title") ? "" : o.optString("title", ""), canal,
+                        Math.round(o.optDouble("duration", 0d)), o.optLong("view_count", 0L)));
+            }
+            int i = Escolha.melhor(pedido, lista);
+            if (i >= 0) {
+                String url = Escolha.endereco(lista.get(i));
+                if (buscas.size() > 40) buscas.clear();
+                buscas.put(pedido, url);
+                return url;
+            }
+        } catch (Exception e) {
+            // sem a lista: vale o primeiro resultado da busca
+        }
+        return entrada;
+    }
+
     private static Info obterInfo(Context contexto, String entrada) {
         long agora = System.currentTimeMillis();
         Info guardada = infos.get(entrada);
@@ -215,6 +254,7 @@ public final class Baixador {
     public static String titulo(Context contexto, String texto) {
         String entrada = Pedido.entrada(texto);
         if (entrada.isEmpty() || !iniciar(contexto)) return "";
+        entrada = resolver(contexto, entrada);
         String[] d = obterInfo(contexto, entrada).d;
         return Limpeza.nomeSugerido(artistaDe(d), d[1], d[3]);
     }
@@ -251,6 +291,7 @@ public final class Baixador {
         limpar(temporaria);
         if (!temporaria.mkdirs() && !temporaria.isDirectory()) return new Resultado(false, "Sem espaço para baixar.");
         try {
+            entrada = resolver(contexto, entrada);
             Info info = obterInfo(contexto, entrada);
             String[] d = info.d;
             String artista = artistaDe(d);
