@@ -44,9 +44,13 @@ public final class Faixa {
     /** Minusculas, sem acento e com espacos simples: "Áudio  Slave" -> "audio slave". */
     public static String normalizar(String texto) {
         if (texto == null) return "";
-        String s = Normalizer.normalize(texto, Normalizer.Form.NFD).replaceAll("\\p{M}+", "");
-        return s.toLowerCase(Locale.ROOT).trim().replaceAll("\\s+", " ");
+        String s = ACENTOS.matcher(Normalizer.normalize(texto, Normalizer.Form.NFD)).replaceAll("");
+        return ESPACOS.matcher(s.toLowerCase(Locale.ROOT).trim()).replaceAll(" ");
     }
+
+    // padroes compilados uma vez: a normalizacao roda para cada musica ao indexar e a cada pesquisa
+    private static final java.util.regex.Pattern ACENTOS = java.util.regex.Pattern.compile("\\p{M}+");
+    private static final java.util.regex.Pattern ESPACOS = java.util.regex.Pattern.compile("\\s+");
 
     /** O arquivo e uma musica? (pelo tipo que o Android informa ou, na falta dele, pela extensao). */
     public static boolean ehAudio(String nome, String mime) {

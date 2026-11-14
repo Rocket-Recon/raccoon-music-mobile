@@ -56,17 +56,23 @@ public final class Catalogo {
     public static List<Faixa> filtrar(List<Faixa> todas, String texto, Set<String> curtidas, boolean soCurtidas) {
         String[] palavras = Faixa.normalizar(texto).split(" ");
         List<Faixa> r = new ArrayList<>();
+        List<Faixa> meio = new ArrayList<>();  // acharam so no meio de uma palavra: vao depois das que comecam pelo digitado
         for (Faixa f : todas) {
             if (soCurtidas && !curtidas.contains(f.chave)) continue;
             boolean ok = true;
+            boolean comeco = true;
             for (String p : palavras) {
-                if (!p.isEmpty() && !f.busca.contains(p)) {
+                if (p.isEmpty()) continue;
+                if (!f.busca.contains(p)) {
                     ok = false;
                     break;
                 }
+                if (!f.busca.startsWith(p) && !f.busca.contains(" " + p)) comeco = false;
             }
-            if (ok) r.add(f);
+            if (!ok) continue;
+            (comeco ? r : meio).add(f);
         }
+        r.addAll(meio);
         return r;
     }
 

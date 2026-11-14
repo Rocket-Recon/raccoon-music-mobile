@@ -473,7 +473,10 @@ public class MainActivity extends Activity {
         return r;
     }
 
+    private final Runnable filtroPendente = this::aplicarFiltro;
+
     private void aplicarFiltro() {
+        ui.removeCallbacks(filtroPendente);
         String texto = edtBusca == null ? "" : edtBusca.getText().toString();
         if (modoGrupos()) {
             grupos = montarGrupos(texto);
@@ -1764,7 +1767,7 @@ public class MainActivity extends Activity {
             }
         }
         final Faixa agora = faixaAtual();
-        new Thread(() -> Separador.limparTemporarias(this, agora)).start();
+        if (agora != null && uriAntiga != null && !uriAntiga.equals(agora.uri)) new Thread(() -> Separador.limparTemporarias(this, agora)).start();
         pintarSeparar();
     }
 
@@ -1871,7 +1874,7 @@ public class MainActivity extends Activity {
         modoSeparado = modo;
         uriSeparada = f.uri;
         pintarSeparar();
-        Toast.makeText(this, Separador.VOZ.equals(modo) ? "Tocando só a voz (só desta vez)" : "Tocando só o instrumental (só desta vez)", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, Separador.VOZ.equals(modo) ? "Tocando só a voz" : "Tocando só o instrumental", Toast.LENGTH_SHORT).show();
     }
 
     private void voltarAoOriginal(Faixa f) {
@@ -1880,8 +1883,7 @@ public class MainActivity extends Activity {
         modoSeparado = null;
         uriSeparada = null;
         pintarSeparar();
-        final Faixa agora = faixaAtual();
-        new Thread(() -> Separador.limparTemporarias(this, agora)).start();
+        // as faixas temporárias ficam: voltar ao normal e escolher de novo a mesma faixa é imediato enquanto a música for a mesma
     }
 
     private void trocarArquivoDaMusicaAtual(Faixa f, MediaItem novo) {
@@ -3896,7 +3898,9 @@ public class MainActivity extends Activity {
             @Override public void onTextChanged(CharSequence s, int a, int b, int c) {}
             @Override public void afterTextChanged(Editable s) {
                 if (limparBusca != null) limparBusca.setVisibility(s.length() > 0 ? View.VISIBLE : View.GONE);
-                aplicarFiltro();
+                // digitando, espera uma pausa curta para filtrar uma vez so; apagar tudo volta na hora
+                ui.removeCallbacks(filtroPendente);
+                if (s.length() == 0) aplicarFiltro(); else ui.postDelayed(filtroPendente, 160);
             }
         });
         edtBusca.setOnEditorActionListener((v, acao, ev) -> {
