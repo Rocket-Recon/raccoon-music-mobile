@@ -4022,6 +4022,7 @@ public class MainActivity extends Activity {
         raiz.addView(meio, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
         raiz.addView(montarMini(), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        if (BARRA_INFERIOR) raiz.addView(montarBarraInferior(), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(58)));
 
         FrameLayout tudo = new FrameLayout(this);
         tudo.setBackgroundColor(FUNDO);
@@ -4435,7 +4436,64 @@ public class MainActivity extends Activity {
         return g;
     }
 
+    /** Liga (true) ou desliga (false) a barra de abas no rodapé; desligada, só o menu lateral navega. */
+    private static final boolean BARRA_INFERIOR = true;
+    private static final String[] ABAS_NOMES = {"Início", "Biblioteca", "Playlists", "Baixar", "Menu"};
+    private static final int[] ABAS_ICONES = {IconeView.CASA, IconeView.NOTA, IconeView.PLAYLIST, IconeView.DOWNLOAD, IconeView.MENU};
+    private LinearLayout[] abasInferiores;
+
+    /** Abas fixas no rodapé (Início, Biblioteca, Playlists, Baixar e Menu), no padrão dos apps de música. */
+    private View montarBarraInferior() {
+        LinearLayout barra = new LinearLayout(this);
+        barra.setBackgroundColor(CARTAO);
+        abasInferiores = new LinearLayout[ABAS_NOMES.length];
+        for (int i = 0; i < ABAS_NOMES.length; i++) {
+            final int aba = i;
+            LinearLayout cel = new LinearLayout(this);
+            cel.setOrientation(LinearLayout.VERTICAL);
+            cel.setGravity(Gravity.CENTER);
+            IconeView ic = new IconeView(this, ABAS_ICONES[i]);
+            ic.definir(ABAS_ICONES[i], ICONE);
+            cel.addView(ic, new LinearLayout.LayoutParams(dp(24), dp(24)));
+            TextView t = texto(11, TEXTO, false);
+            t.setText(ABAS_NOMES[i]);
+            t.setGravity(Gravity.CENTER);
+            t.setPadding(0, dp(2), 0, 0);
+            cel.addView(t);
+            cel.setBackground(toque(null, forma(0xFF000000, 12, 0)));
+            cel.setOnClickListener(v -> {
+                switch (aba) {
+                    case 0: irPara(SECAO_INICIO); break;
+                    case 1: irPara(SECAO_MUSICAS); break;
+                    case 2: irPara(SECAO_PLAYLISTS); break;
+                    case 3: baixarNoCelular(); break;
+                    default: abrirGaveta(); break;
+                }
+            });
+            abasInferiores[i] = cel;
+            barra.addView(cel, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
+        }
+        marcarBarraInferior();
+        return barra;
+    }
+
+    /** Destaca a aba da seção atual: Início, Playlists ou Biblioteca (as demais listas pertencem a ela). */
+    private void marcarBarraInferior() {
+        if (abasInferiores == null) return;
+        int atual = secao == SECAO_COLECAO ? secaoAnterior : secao;
+        int destaque = atual == SECAO_INICIO ? 0 : (atual == SECAO_PLAYLISTS ? 2 : 1);
+        for (int i = 0; i < abasInferiores.length; i++) {
+            if (abasInferiores[i] == null) continue;
+            boolean marcada = i == destaque;
+            ((IconeView) abasInferiores[i].getChildAt(0)).definir(ABAS_ICONES[i], marcada ? ACENTO : ICONE);
+            TextView t = (TextView) abasInferiores[i].getChildAt(1);
+            t.setTextColor(marcada ? ACENTO : SUAVE);
+            t.setTypeface(null, marcada ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+        }
+    }
+
     private void marcarSecao() {
+        marcarBarraInferior();
         for (int i = 0; i < linhasSecao.length; i++) {
             if (linhasSecao[i] == null) continue;
             boolean atual = i == (secao == SECAO_COLECAO ? secaoAnterior : secao);
@@ -4648,7 +4706,8 @@ public class MainActivity extends Activity {
         lado.setPadding(dp(14), 0, 0, 0);
         final TextView frase = texto(16, TEXTO, true);
         final TextView detalhe = texto(13, SUAVE, false);
-        detalhe.setPadding(0, dp(2), 0, dp(10));
+        detalhe.setPadding(0, dp(2), 0, 0);
+        lado.setGravity(Gravity.CENTER_VERTICAL);
         final BarraDeProgresso geral = novaBarra(1, prefs.barras(), 14);
         lado.addView(frase);
         lado.addView(detalhe);
@@ -4665,7 +4724,7 @@ public class MainActivity extends Activity {
         rotuloEntrada.setText("Links ou nomes das músicas");
         entrada.addView(rotuloEntrada);
         final EditText campo = new EditText(this);
-        campo.setHint("Um link ou nome por linha, ou o link de uma playlist");
+        campo.setHint("Digite nomes de músicas ou insira URLs");
         campo.setHintTextColor(SUAVE);
         campo.setTextColor(TEXTO);
         campo.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
@@ -4679,9 +4738,6 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams pc = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         pc.setMargins(0, dp(10), 0, dp(10));
         entrada.addView(campo, pc);
-        final TextView formato = texto(12, SUAVE, false);
-        formato.setOnClickListener(v -> ajustesDoDownload());
-        entrada.addView(formato);
         TextView baixar = botaoDeTexto("Baixar", true);
         LinearLayout.LayoutParams pbx = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         pbx.setMargins(0, dp(12), 0, 0);
@@ -4719,7 +4775,6 @@ public class MainActivity extends Activity {
         redesenharFila = () -> {
             pedidoPendente = campo.getText().toString();
             BarraEstilo estilo = prefs.barras();
-            formato.setText("Formato " + prefs.baixarFormato().toUpperCase() + " · " + prefs.baixarTaxa() + " kbps  (toque para mudar)");
             List<FilaDeDownload.Item> itens = FilaDeDownload.copia();
             int[] n = FilaDeDownload.contagem();
             String mascoteAtual = FilaDeDownload.mascote();
@@ -4736,7 +4791,7 @@ public class MainActivity extends Activity {
             boolean ativa = n[FilaDeDownload.PENDENTE] + n[FilaDeDownload.BAIXANDO] > 0;
             if (total == 0) {
                 frase.setText("Pronto para baixar");
-                detalhe.setText("Cole os links ou nomes abaixo.");
+                detalhe.setText("");
             } else if (ativa) {
                 frase.setText(preparando && n[FilaDeDownload.OK] == 0 ? "Preparando…" : "Baixando…");
                 detalhe.setText(feitos + " de " + total + (n[FilaDeDownload.ERRO] > 0 ? " · " + n[FilaDeDownload.ERRO] + " com erro" : ""));
@@ -4744,6 +4799,7 @@ public class MainActivity extends Activity {
                 frase.setText(n[FilaDeDownload.ERRO] > 0 ? "Terminou com erros" : "Concluído");
                 detalhe.setText(n[FilaDeDownload.OK] + " de " + total + " baixadas" + (n[FilaDeDownload.ERRO] > 0 ? " · " + n[FilaDeDownload.ERRO] + " com erro" : ""));
             }
+            detalhe.setVisibility(detalhe.getText().length() == 0 ? View.GONE : View.VISIBLE);
             int tipo = ativa ? (preparando && geralPct < 20 ? 0 : 1) : (total > 0 && n[FilaDeDownload.ERRO] == 0 ? 2 : 1);
             geral.definir(tipo, estilo, ACENTO, LINHA);
             geral.valor(ativa ? geralPct : (total > 0 ? 100 : 0), tipo == 0);
