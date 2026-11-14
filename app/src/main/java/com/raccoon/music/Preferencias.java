@@ -67,6 +67,10 @@ public final class Preferencias {
     public String filaDeDownload() { return sp.getString("fila_download", ""); }
     public void filaDeDownload(String texto) { sp.edit().putString("fila_download", texto).apply(); }
 
+    /** Aparência das barras de progresso do download (veja BarraEstilo). */
+    public BarraEstilo barras() { return BarraEstilo.ler(sp.getString("barras", "")); }
+    public void barras(BarraEstilo estilo) { sp.edit().putString("barras", estilo.serializar()).apply(); }
+
     /** Combinações de cores salvas (texto em linhas; veja Combinacoes). */
     public String combinacoes() { return sp.getString("combinacoes", ""); }
     public void combinacoes(String texto) { sp.edit().putString("combinacoes", texto).apply(); }

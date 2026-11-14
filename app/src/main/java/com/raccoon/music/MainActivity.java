@@ -3097,7 +3097,7 @@ public class MainActivity extends Activity {
         lblFilaInicio = texto(13, ACENTO, true);
         lblFilaInicio.setPadding(dp(10), dp(4), 0, dp(4));
         lblFilaInicio.setOnClickListener(v -> abrirFila());
-        lblFilaInicio.setVisibility(View.GONE);
+        lblFilaInicio.setText("Abrir ›");
         topo.addView(lblFilaInicio);
         cartao.addView(topo);
 
@@ -3477,6 +3477,185 @@ public class MainActivity extends Activity {
                 .show();
     }
 
+    /** Seletor no topo de Aparência: Cores e Barras de progresso, como as duas páginas do app do PC. */
+    private LinearLayout seletorDeAparencia(final int ativo, final AlertDialog dialogo) {
+        LinearLayout linha = new LinearLayout(this);
+        linha.setPadding(0, 0, 0, dp(12));
+        String[] nomes = {"Cores", "Barras de progresso"};
+        for (int i = 0; i < 2; i++) {
+            final int destino = i;
+            TextView c = texto(14, i == ativo ? 0xFFFFFFFF : TEXTO, true);
+            c.setGravity(Gravity.CENTER);
+            c.setText(nomes[i]);
+            c.setPadding(dp(14), dp(9), dp(14), dp(9));
+            c.setBackground(forma(i == ativo ? ACENTO : CARTAO, 18, i == ativo ? 0 : LINHA));
+            c.setOnClickListener(v -> {
+                if (destino == ativo) return;
+                dialogo.dismiss();
+                if (destino == 0) escolherCores(); else escolherBarras();
+            });
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            if (i == 1) lp.setMargins(dp(8), 0, 0, 0);
+            linha.addView(c, lp);
+        }
+        return linha;
+    }
+
+    private TextView chipDeOpcao(String rotulo, boolean marcado, Runnable aoTocar) {
+        TextView c = texto(13, marcado ? 0xFFFFFFFF : TEXTO, marcado);
+        c.setGravity(Gravity.CENTER);
+        c.setText(rotulo);
+        c.setSingleLine(true);
+        c.setPadding(dp(8), dp(8), dp(8), dp(8));
+        c.setBackground(forma(marcado ? ACENTO : FUNDO, 14, marcado ? 0 : LINHA));
+        c.setOnClickListener(v -> aoTocar.run());
+        return c;
+    }
+
+    /** Opções em linhas de três, cada uma com chave e nome. */
+    private LinearLayout gradeDeOpcoes(String[][] opcoes, String atual, final java.util.function.Consumer<String> aoEscolher) {
+        LinearLayout grade = new LinearLayout(this);
+        grade.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout linha = null;
+        for (int i = 0; i < opcoes.length; i++) {
+            if (i % 3 == 0) {
+                linha = new LinearLayout(this);
+                grade.addView(linha, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            }
+            final String chave = opcoes[i][0];
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            lp.setMargins(dp(3), dp(3), dp(3), dp(3));
+            linha.addView(chipDeOpcao(opcoes[i][1], chave.equals(atual), () -> aoEscolher.accept(chave)), lp);
+        }
+        if (linha != null) {  // completa a última linha para as opções não esticarem
+            for (int k = linha.getChildCount(); k < 3; k++) {
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, 1, 1f);
+                linha.addView(new View(this), lp);
+            }
+        }
+        return grade;
+    }
+
+    private TextView tituloDeBloco(String t) {
+        TextView r = texto(14, SUAVE, true);
+        r.setText(t);
+        r.setPadding(0, dp(14), 0, dp(6));
+        return r;
+    }
+
+    /** Aparência > Barras de progresso: prévia das três barras e a escolha de cor, efeito, velocidade e formato. */
+    private void escolherBarras() {
+        final BarraEstilo estilo = prefs.barras();
+        final int[] alvo = {-1};  // -1 = as três barras
+        final ScrollView rolagem = new ScrollView(this);
+        final LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setPadding(dp(20), dp(8), dp(20), dp(8));
+        rolagem.addView(col);
+        final AlertDialog dialogo = new Construtor().setTitle("Aparência").setView(rolagem)
+                .setNegativeButton("Restaurar", (d, q) -> {
+                    prefs.barras(new BarraEstilo());
+                    escolherBarras();
+                })
+                .setPositiveButton("Fechar", null)
+                .create();
+        col.addView(seletorDeAparencia(1, dialogo));
+
+        // prévia: as três barras andando de verdade
+        LinearLayout previa = new LinearLayout(this);
+        previa.setOrientation(LinearLayout.VERTICAL);
+        previa.setBackground(forma(CARTAO, 14, LINHA));
+        previa.setPadding(dp(14), dp(10), dp(14), dp(12));
+        final BarraDeProgresso[] exemplos = new BarraDeProgresso[3];
+        final int[] valores = {0, 60, 100};
+        for (int i = 0; i < 3; i++) {
+            TextView nome = texto(12, SUAVE, false);
+            nome.setText(BarraEstilo.NOMES[i]);
+            nome.setPadding(0, dp(i == 0 ? 0 : 8), 0, dp(3));
+            previa.addView(nome);
+            exemplos[i] = novaBarra(i, estilo, 14);
+            previa.addView(exemplos[i]);
+        }
+        col.addView(previa);
+        final LinearLayout controles = new LinearLayout(this);
+        controles.setOrientation(LinearLayout.VERTICAL);
+        col.addView(controles);
+
+        final Runnable[] montar = new Runnable[1];
+        final Runnable aplicar = () -> {
+            prefs.barras(estilo);
+            for (int i = 0; i < 3; i++) {
+                exemplos[i].definir(i, estilo, ACENTO, LINHA);
+                exemplos[i].valor(valores[i], i == 0 && valores[i] == 0);
+            }
+            montar.run();
+        };
+        montar[0] = () -> {
+            controles.removeAllViews();
+            controles.addView(tituloDeBloco("Ajustar"));
+            String[][] alvos = {{"-1", "Todas"}, {"0", "Preparando"}, {"1", "Baixando"}, {"2", "Concluído"}};
+            controles.addView(gradeDeOpcoes(alvos, String.valueOf(alvo[0]), c -> {
+                alvo[0] = Integer.parseInt(c);
+                montar[0].run();
+            }));
+
+            controles.addView(tituloDeBloco("Cor"));
+            LinearLayout cores = new LinearLayout(this);
+            cores.setOrientation(LinearLayout.VERTICAL);
+            LinearLayout linhaCor = null;
+            int corAtual = alvo[0] < 0 ? estilo.cor[1] : estilo.cor[alvo[0]];
+            for (int i = 0; i < BarraEstilo.CORES.length; i++) {
+                if (i % 6 == 0) {
+                    linhaCor = new LinearLayout(this);
+                    cores.addView(linhaCor);
+                }
+                final int argb = (Integer) BarraEstilo.CORES[i][1];
+                TextView b = texto(11, 0xFFFFFFFF, true);
+                b.setGravity(Gravity.CENTER);
+                if (argb == 0) b.setText("A");
+                b.setBackground(bolinha(argb == 0 ? ACENTO : argb, argb == corAtual));
+                LinearLayout.LayoutParams pb = new LinearLayout.LayoutParams(dp(38), dp(38));
+                pb.setMargins(dp(4), dp(4), dp(4), dp(4));
+                b.setOnClickListener(v -> {
+                    estilo.cor(alvo[0], argb);
+                    aplicar.run();
+                });
+                linhaCor.addView(b, pb);
+            }
+            controles.addView(cores);
+
+            controles.addView(tituloDeBloco("Efeito"));
+            int ref = alvo[0] < 0 ? 1 : alvo[0];
+            String[][] efeitos = alvo[0] < 0 ? comumDasBarras() : BarraEstilo.efeitos(alvo[0]);
+            controles.addView(gradeDeOpcoes(efeitos, estilo.efeito[ref], c -> {
+                for (int i = 0; i < 3; i++) if (alvo[0] < 0 || alvo[0] == i) estilo.efeito(i, c);
+                aplicar.run();
+            }));
+
+            controles.addView(tituloDeBloco("Velocidade"));
+            controles.addView(gradeDeOpcoes(BarraEstilo.VELOCIDADES, estilo.velocidade[ref], c -> {
+                for (int i = 0; i < 3; i++) if (alvo[0] < 0 || alvo[0] == i) estilo.velocidade(i, c);
+                aplicar.run();
+            }));
+
+            controles.addView(tituloDeBloco("Formato (vale para as três)"));
+            controles.addView(gradeDeOpcoes(BarraEstilo.FORMATOS, estilo.formato, c -> {
+                estilo.formato(c);
+                aplicar.run();
+            }));
+        };
+        aplicar.run();
+        dialogo.show();
+    }
+
+    /** Efeitos que servem para as três barras (os exclusivos de cada uma só aparecem ao escolher a barra). */
+    private static String[][] comumDasBarras() {
+        String[][] r = new String[BarraEstilo.EFEITOS_COMUNS.length + 1][];
+        System.arraycopy(BarraEstilo.EFEITOS_COMUNS, 0, r, 0, BarraEstilo.EFEITOS_COMUNS.length);
+        r[r.length - 1] = new String[]{"nenhum", "Sólida"};
+        return r;
+    }
+
     private void escolherCores() {
         final ScrollView rolagem = new ScrollView(this);
         final LinearLayout col = new LinearLayout(this);
@@ -3491,6 +3670,7 @@ public class MainActivity extends Activity {
                 .setNeutralButton("Salvar", (d, q) -> salvarCombinacaoAtual())
                 .setPositiveButton("Fechar", null)
                 .create();
+        col.addView(seletorDeAparencia(0, dialogo));
         adicionarCombinacoes(col, dialogo);
         for (int bloco = 0; bloco < 2; bloco++) {
             final boolean fundo = bloco == 0;
@@ -4224,7 +4404,6 @@ public class MainActivity extends Activity {
         }
         adicionarTitulo(itens, "Músicas");
         adicionarItem(itens, itemDoMenu("Baixar música", IconeView.DOWNLOAD, this::baixarNoCelular));
-        adicionarItem(itens, itemDoMenu("Fila de downloads", IconeView.DOWNLOAD, this::abrirFila));
         adicionarItem(itens, itemDoMenu("Baixar no PC", IconeView.COMPUTADOR, this::baixarNoPc));
         adicionarItem(itens, itemDoMenu("Enviar ao PC", IconeView.EXPORTAR, this::enviarAoPc));
         adicionarItem(itens, itemDoMenu("Sincronizar com a conta", IconeView.COMPUTADOR, this::sincronizarComConta));
@@ -4370,7 +4549,8 @@ public class MainActivity extends Activity {
         int total = FilaDeDownload.copia().size();
         boolean ativa = FilaDeDownload.ativa();
         if (total == 0 || (!ativa && n[FilaDeDownload.ERRO] == 0)) {
-            lblFilaInicio.setVisibility(View.GONE);
+            lblFilaInicio.setText("Abrir ›");
+            lblFilaInicio.setVisibility(View.VISIBLE);
             return;
         }
         String t = "Fila · " + (n[FilaDeDownload.OK] + n[FilaDeDownload.ERRO]) + "/" + total;
@@ -4381,27 +4561,260 @@ public class MainActivity extends Activity {
 
     private String pedidoPendente = "";
 
-    /** Baixa links ou nomes (um ou vários, um por linha) direto no celular, para a pasta de músicas. */
+    /** Abre a tela de download (campo para vários links, andamento e fila). */
     private void baixarNoCelular() {
         if (prefs.arvore() == null) {
             Toast.makeText(this, "Escolha primeiro a pasta de músicas.", Toast.LENGTH_LONG).show();
             escolherPasta();
             return;
         }
-        final EditText campo = campoDeTexto(pedidoPendente);
-        campo.setSingleLine(false);
-        campo.setMaxLines(8);
+        abrirTelaDeDownload();
+    }
+
+    private int imagemDoMascote(String nome) {
+        switch (nome) {
+            case "baixando": return R.drawable.logo_baixando;
+            case "procurando": return R.drawable.logo_procurando;
+            case "sucesso": return R.drawable.logo_sucesso;
+            case "erro": return R.drawable.logo_erro;
+            default: return R.drawable.logo_aguardando;
+        }
+    }
+
+    private BarraDeProgresso novaBarra(int barra, BarraEstilo estilo, float alturaDp) {
+        BarraDeProgresso b = new BarraDeProgresso(this);
+        b.definir(barra, estilo, ACENTO, LINHA);
+        b.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(alturaDp)));
+        return b;
+    }
+
+    private TextView botaoDeTexto(String rotulo, boolean principal) {
+        TextView t = texto(14, principal ? 0xFFFFFFFF : TEXTO, true);
+        t.setGravity(Gravity.CENTER);
+        t.setPadding(dp(16), dp(10), dp(16), dp(10));
+        t.setBackground(toque(forma(principal ? ACENTO : CARTAO, 20, principal ? 0 : LINHA), forma(0xFFFFFFFF, 20, 0)));
+        t.setText(rotulo);
+        return t;
+    }
+
+    /** Tela de download: mascote e andamento geral, campo grande para vários links e a fila com uma barra por música. */
+    private void abrirTelaDeDownload() {
+        final android.app.Dialog tela = new android.app.Dialog(this, android.R.style.Theme_Material_NoActionBar);
+        final LinearLayout raiz = new LinearLayout(this);
+        raiz.setOrientation(LinearLayout.VERTICAL);
+        raiz.setBackgroundColor(FUNDO);
+        raiz.setOnApplyWindowInsetsListener((v, ins) -> {
+            v.setPadding(0, ins.getSystemWindowInsetTop(), 0, ins.getSystemWindowInsetBottom());
+            return ins;
+        });
+
+        LinearLayout topo = new LinearLayout(this);
+        topo.setGravity(Gravity.CENTER_VERTICAL);
+        topo.setPadding(dp(8), dp(8), dp(16), dp(8));
+        IconeView voltar = new IconeView(this, IconeView.SETA);
+        voltar.definir(IconeView.SETA, TEXTO);
+        voltar.setRotation(180);
+        voltar.setPadding(dp(10), dp(10), dp(10), dp(10));
+        voltar.setOnClickListener(v -> tela.dismiss());
+        topo.addView(voltar, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        TextView titulo = texto(20, TEXTO, true);
+        titulo.setText("Baixar músicas");
+        topo.addView(titulo, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView ajustes = texto(14, ACENTO, true);
+        ajustes.setText("Ajustes");
+        ajustes.setPadding(dp(10), dp(8), 0, dp(8));
+        ajustes.setOnClickListener(v -> ajustesDoDownload());
+        topo.addView(ajustes);
+        raiz.addView(topo);
+
+        ScrollView rolagem = new ScrollView(this);
+        rolagem.setFillViewport(true);
+        final LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setPadding(dp(16), dp(4), dp(16), dp(24));
+        rolagem.addView(col);
+        raiz.addView(rolagem, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        // status: mascote, frase, detalhe e a barra geral
+        LinearLayout status = new LinearLayout(this);
+        status.setGravity(Gravity.CENTER_VERTICAL);
+        status.setBackground(forma(CARTAO, 16, LINHA));
+        status.setPadding(dp(14), dp(12), dp(14), dp(14));
+        final ImageView mascote = new ImageView(this);
+        mascote.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        status.addView(mascote, new LinearLayout.LayoutParams(dp(92), dp(92)));
+        LinearLayout lado = new LinearLayout(this);
+        lado.setOrientation(LinearLayout.VERTICAL);
+        lado.setPadding(dp(14), 0, 0, 0);
+        final TextView frase = texto(16, TEXTO, true);
+        final TextView detalhe = texto(13, SUAVE, false);
+        detalhe.setPadding(0, dp(2), 0, dp(10));
+        final BarraDeProgresso geral = novaBarra(1, prefs.barras(), 14);
+        lado.addView(frase);
+        lado.addView(detalhe);
+        lado.addView(geral);
+        status.addView(lado, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        col.addView(status);
+
+        // campo grande
+        LinearLayout entrada = new LinearLayout(this);
+        entrada.setOrientation(LinearLayout.VERTICAL);
+        entrada.setBackground(forma(CARTAO, 16, LINHA));
+        entrada.setPadding(dp(14), dp(12), dp(14), dp(14));
+        TextView rotuloEntrada = texto(15, TEXTO, true);
+        rotuloEntrada.setText("Links ou nomes das músicas");
+        entrada.addView(rotuloEntrada);
+        final EditText campo = new EditText(this);
+        campo.setHint("Um link ou nome por linha, ou o link de uma playlist");
+        campo.setHintTextColor(SUAVE);
+        campo.setTextColor(TEXTO);
+        campo.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        campo.setMinLines(5);
+        campo.setMaxLines(10);
+        campo.setGravity(Gravity.TOP | Gravity.START);
         campo.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
-        campo.setHint("Link ou nome da música (um por linha, ou o link de uma playlist)");
-        new Construtor()
-                .setTitle("Baixar músicas")
-                .setView(caixaDoCampo(campo))
-                .setPositiveButton("Baixar", (d, q) -> {
-                    pedidoPendente = "";
-                    baixarTexto(campo.getText().toString().trim());
-                })
-                .setNegativeButton("Cancelar", (d, q) -> pedidoPendente = "")
-                .show();
+        campo.setBackground(forma(FUNDO, 14, LINHA));
+        campo.setPadding(dp(14), dp(12), dp(14), dp(12));
+        campo.setText(pedidoPendente);
+        LinearLayout.LayoutParams pc = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        pc.setMargins(0, dp(10), 0, dp(10));
+        entrada.addView(campo, pc);
+        final TextView formato = texto(12, SUAVE, false);
+        formato.setOnClickListener(v -> ajustesDoDownload());
+        entrada.addView(formato);
+        TextView baixar = botaoDeTexto("Baixar", true);
+        LinearLayout.LayoutParams pbx = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        pbx.setMargins(0, dp(12), 0, 0);
+        baixar.setOnClickListener(v -> {
+            String t = campo.getText().toString().trim();
+            if (t.isEmpty()) {
+                Toast.makeText(this, "Escreva um link ou o nome da música.", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            if (prefs.arvore() == null) {
+                Toast.makeText(this, "Escolha primeiro a pasta de músicas.", Toast.LENGTH_LONG).show();
+                escolherPasta();
+                return;
+            }
+            InputMethodManager imm = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+            if (imm != null) imm.hideSoftInputFromWindow(campo.getWindowToken(), 0);
+            campo.setText("");
+            pedidoPendente = "";
+            baixarTexto(t);
+        });
+        entrada.addView(baixar, pbx);
+        LinearLayout.LayoutParams pe = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        pe.setMargins(0, dp(12), 0, 0);
+        col.addView(entrada, pe);
+
+        // fila
+        final LinearLayout fila = new LinearLayout(this);
+        fila.setOrientation(LinearLayout.VERTICAL);
+        fila.setBackground(forma(CARTAO, 16, LINHA));
+        fila.setPadding(dp(14), dp(12), dp(14), dp(14));
+        LinearLayout.LayoutParams pf = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        pf.setMargins(0, dp(12), 0, 0);
+        col.addView(fila, pf);
+
+        redesenharFila = () -> {
+            pedidoPendente = campo.getText().toString();
+            BarraEstilo estilo = prefs.barras();
+            formato.setText("Formato " + prefs.baixarFormato().toUpperCase() + " · " + prefs.baixarTaxa() + " kbps  (toque para mudar)");
+            List<FilaDeDownload.Item> itens = FilaDeDownload.copia();
+            int[] n = FilaDeDownload.contagem();
+            String mascoteAtual = FilaDeDownload.mascote();
+            mascote.setImageResource(imagemDoMascote(mascoteAtual));
+            int total = itens.size();
+            int feitos = n[FilaDeDownload.OK] + n[FilaDeDownload.ERRO];
+            double soma = 0;
+            boolean preparando = false;
+            for (FilaDeDownload.Item it : itens) {
+                soma += it.percentual();
+                if (it.estado == FilaDeDownload.BAIXANDO && it.etapa == FilaDeDownload.ETAPA_PREPARANDO) preparando = true;
+            }
+            int geralPct = total == 0 ? 0 : (int) Math.round(soma / total);
+            boolean ativa = n[FilaDeDownload.PENDENTE] + n[FilaDeDownload.BAIXANDO] > 0;
+            if (total == 0) {
+                frase.setText("Pronto para baixar");
+                detalhe.setText("Cole os links ou nomes abaixo.");
+            } else if (ativa) {
+                frase.setText(preparando && n[FilaDeDownload.OK] == 0 ? "Preparando…" : "Baixando…");
+                detalhe.setText(feitos + " de " + total + (n[FilaDeDownload.ERRO] > 0 ? " · " + n[FilaDeDownload.ERRO] + " com erro" : ""));
+            } else {
+                frase.setText(n[FilaDeDownload.ERRO] > 0 ? "Terminou com erros" : "Concluído");
+                detalhe.setText(n[FilaDeDownload.OK] + " de " + total + " baixadas" + (n[FilaDeDownload.ERRO] > 0 ? " · " + n[FilaDeDownload.ERRO] + " com erro" : ""));
+            }
+            int tipo = ativa ? (preparando && geralPct < 20 ? 0 : 1) : (total > 0 && n[FilaDeDownload.ERRO] == 0 ? 2 : 1);
+            geral.definir(tipo, estilo, ACENTO, LINHA);
+            geral.valor(ativa ? geralPct : (total > 0 ? 100 : 0), tipo == 0);
+
+            fila.removeAllViews();
+            TextView cab = texto(15, TEXTO, true);
+            cab.setText("Fila");
+            fila.addView(cab);
+            if (itens.isEmpty()) {
+                TextView vazio = texto(13, SUAVE, false);
+                vazio.setText("Nada na fila.");
+                vazio.setPadding(0, dp(6), 0, 0);
+                fila.addView(vazio);
+                return;
+            }
+            for (FilaDeDownload.Item it : itens) {
+                TextView nome = texto(14, it.estado == FilaDeDownload.ERRO ? 0xFFE5484D : TEXTO, false);
+                nome.setSingleLine(true);
+                nome.setEllipsize(TextUtils.TruncateAt.END);
+                nome.setText(it.rotulo());
+                nome.setPadding(0, dp(12), 0, dp(2));
+                fila.addView(nome);
+                TextView sit = texto(12, it.estado == FilaDeDownload.OK ? ACENTO : SUAVE, false);
+                sit.setText(it.situacao());
+                sit.setPadding(0, 0, 0, dp(6));
+                fila.addView(sit);
+                int barra = it.estado == FilaDeDownload.OK ? 2 : (it.estado == FilaDeDownload.BAIXANDO && it.etapa == FilaDeDownload.ETAPA_PREPARANDO ? 0 : 1);
+                BarraDeProgresso b = novaBarra(barra, estilo, 8);
+                b.valor(it.percentual(), it.estado == FilaDeDownload.BAIXANDO && it.etapa == FilaDeDownload.ETAPA_BAIXANDO);
+                fila.addView(b);
+            }
+            LinearLayout acoes = new LinearLayout(this);
+            acoes.setPadding(0, dp(14), 0, 0);
+            if (n[FilaDeDownload.PENDENTE] > 0) {
+                TextView cancelar = botaoDeTexto("Cancelar os que faltam", false);
+                cancelar.setOnClickListener(v -> FilaDeDownload.cancelarPendentes());
+                acoes.addView(cancelar, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            }
+            if (n[FilaDeDownload.ERRO] > 0 && !ativa) {
+                TextView de_novo = botaoDeTexto("Tentar de novo", true);
+                de_novo.setOnClickListener(v -> {
+                    if (FilaDeDownload.tentarDeNovo() > 0) startServicoDeDownload();
+                });
+                acoes.addView(de_novo, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            }
+            if (n[FilaDeDownload.OK] > 0 || (n[FilaDeDownload.ERRO] > 0 && !ativa)) {
+                TextView limpar = botaoDeTexto("Limpar prontos", false);
+                limpar.setOnClickListener(v -> FilaDeDownload.limparConcluidos());
+                LinearLayout.LayoutParams pl = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+                if (acoes.getChildCount() > 0) pl.setMargins(dp(8), 0, 0, 0);
+                acoes.addView(limpar, pl);
+            }
+            if (acoes.getChildCount() > 0) fila.addView(acoes);
+        };
+        tela.setOnDismissListener(x -> {
+            pedidoPendente = campo.getText().toString();
+            redesenharFila = null;
+        });
+        tela.setContentView(raiz);
+        if (tela.getWindow() != null) {
+            tela.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(FUNDO));
+            tela.getWindow().setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+            tela.getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+        }
+        tela.show();
+        redesenharFila.run();
+    }
+
+    /** Atalho antigo da fila: abre a tela de download. */
+    private void abrirFila() {
+        abrirTelaDeDownload();
     }
 
     /** Ponto único de entrada: um pedido simples segue o caminho antigo; vários (ou playlist) vão para o diálogo do lote. */
@@ -4607,66 +5020,6 @@ public class MainActivity extends Activity {
         else startService(servico);
         Toast.makeText(this, entradas.size() == 1 ? "Baixando… o aviso aparece quando terminar." : entradas.size() + " músicas na fila.", Toast.LENGTH_LONG).show();
         atualizarFilaInicio();
-    }
-
-    /** Tela da fila: andamento de cada música, com cancelar os que faltam, limpar os prontos e tentar de novo os que falharam. */
-    private void abrirFila() {
-        final LinearLayout lista = new LinearLayout(this);
-        lista.setOrientation(LinearLayout.VERTICAL);
-        lista.setPadding(dp(22), dp(8), dp(22), 0);
-        ScrollView rolagem = new ScrollView(this);
-        rolagem.addView(lista);
-        final AlertDialog d = new Construtor()
-                .setTitle("Fila de downloads")
-                .setView(rolagem)
-                .setPositiveButton("Fechar", null)
-                .setNegativeButton("Cancelar os que faltam", null)
-                .setNeutralButton("Limpar prontos", null)
-                .create();
-        redesenharFila = () -> {
-            lista.removeAllViews();
-            List<FilaDeDownload.Item> itens = FilaDeDownload.copia();
-            if (itens.isEmpty()) {
-                TextView vazio = texto(14, SUAVE, false);
-                vazio.setText("A fila está vazia.");
-                lista.addView(vazio);
-            }
-            String[] glifo = {"…", "↓", "✓", "✕"};
-            for (FilaDeDownload.Item it : itens) {
-                TextView t = texto(14, it.estado == FilaDeDownload.ERRO ? 0xFFE5484D : (it.estado == FilaDeDownload.OK ? ACENTO : TEXTO), false);
-                t.setSingleLine(true);
-                t.setEllipsize(TextUtils.TruncateAt.END);
-                t.setText(glifo[Math.max(0, Math.min(3, it.estado))] + "  " + it.rotulo());
-                t.setPadding(0, dp(6), 0, dp(6));
-                lista.addView(t);
-                if (it.estado == FilaDeDownload.ERRO && !it.mensagem.isEmpty()) {
-                    TextView m = texto(12, SUAVE, false);
-                    m.setText(it.mensagem);
-                    lista.addView(m);
-                }
-            }
-        };
-        d.setOnDismissListener(x -> redesenharFila = null);
-        d.show();
-        try {
-            if (d.getWindow() != null) d.getWindow().setBackgroundDrawable(new android.graphics.drawable.InsetDrawable(forma(CARTAO, 22, LINHA), dp(6)));
-        } catch (Exception e) {
-            // o visual padrao do dialogo continua valendo
-        }
-        d.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(ACENTO);
-        d.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(SUAVE);
-        d.getButton(AlertDialog.BUTTON_NEUTRAL).setTextColor(SUAVE);
-        d.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener(v -> FilaDeDownload.cancelarPendentes());
-        d.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v -> {
-            if (FilaDeDownload.contagem()[FilaDeDownload.ERRO] > 0 && !FilaDeDownload.ativa()) {
-                // com erros e nada rodando, o botão serve para tentar de novo
-                int n = FilaDeDownload.tentarDeNovo();
-                if (n > 0) startServicoDeDownload();
-            } else {
-                FilaDeDownload.limparConcluidos();
-            }
-        });
-        redesenharFila.run();
     }
 
     private void startServicoDeDownload() {

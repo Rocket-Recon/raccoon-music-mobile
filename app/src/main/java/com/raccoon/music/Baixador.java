@@ -234,7 +234,16 @@ public final class Baixador {
     }
 
     /** Bloqueia ate terminar: chamar fora da thread da tela. `nome` vazio usa o nome limpo no padrao do PC. */
+    /** Recebe as mudanças de etapa de um download (ver FilaDeDownload.ETAPA_*). */
+    public interface Etapas {
+        void etapa(int etapa, String titulo);
+    }
+
     public static Resultado baixar(Context contexto, String texto, String arvore, String nome, String formato, int taxa) {
+        return baixar(contexto, texto, arvore, nome, formato, taxa, null);
+    }
+
+    public static Resultado baixar(Context contexto, String texto, String arvore, String nome, String formato, int taxa, Etapas avisos) {
         String entrada = Pedido.entrada(texto);
         if (entrada.isEmpty()) return new Resultado(false, "Escreva um link ou o nome da música.");
         if (!iniciar(contexto)) return new Resultado(false, "O baixador não iniciou neste aparelho.");
@@ -254,6 +263,8 @@ public final class Baixador {
             if (nome != null && !nome.trim().isEmpty()) nomeFinal = nome;
             else if (oficial != null && !oficial.titulo.isEmpty()) nomeFinal = Pedido.nomeDoArquivo(artistaTag.isEmpty() ? tituloTag : Limpeza.formatarArtista(artistaTag) + " - " + tituloTag);
             else nomeFinal = Limpeza.nomeSugerido(artista, d[1], d[3]);
+
+            if (avisos != null) avisos.etapa(FilaDeDownload.ETAPA_BAIXANDO, nomeFinal);
 
             // a imagem é buscada em paralelo ao download: a oficial do álbum e, sem ela, a miniatura do vídeo
             final String enderecoDaCapa = oficial != null && !oficial.capa.isEmpty() ? oficial.capa : info.miniatura;
@@ -327,6 +338,7 @@ public final class Baixador {
                 Thread.currentThread().interrupt();
             }
             byte[] imagem = capaBaixada[0];
+            if (avisos != null) avisos.etapa(FilaDeDownload.ETAPA_SALVANDO, null);
             Uri novo = copiar(contexto.getContentResolver(), pronto, Uri.parse(arvore), Pedido.mime(formato));
             if (novo == null) {
                 return new Resultado(false, "Baixei, mas não consegui salvar na pasta de músicas.");

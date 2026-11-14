@@ -7,6 +7,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
 /** A fila de downloads do app: o que falta baixar, o que está baixando e o resultado de cada um. Sem Android, para poder ser testada. */
 public final class FilaDeDownload {
     public static final int PENDENTE = 0, BAIXANDO = 1, OK = 2, ERRO = 3;
+    /** Etapas de um pedido em andamento. */
+    public static final int ETAPA_PREPARANDO = 0, ETAPA_BAIXANDO = 1, ETAPA_SALVANDO = 2;
 
     /** Um pedido da fila. `nome` vazio deixa o app escolher o nome (Artista - Título oficial). */
     public static final class Item {
@@ -18,6 +20,8 @@ public final class FilaDeDownload {
         public final int taxa;
         public volatile int estado = PENDENTE;
         public volatile String mensagem = "";
+        public volatile int etapa = ETAPA_PREPARANDO;
+        public volatile String titulo = "";
 
         Item(int id, String entrada, String nome, String arvore, String formato, int taxa) {
             this.id = id;
@@ -30,7 +34,26 @@ public final class FilaDeDownload {
 
         /** O que aparece na lista: o nome escolhido ou o texto/link pedido. */
         public String rotulo() {
+            if (!titulo.isEmpty()) return titulo;
             return nome.isEmpty() ? entrada : nome;
+        }
+
+        /** Andamento de 0 a 100 conforme o estado e a etapa. */
+        public int percentual() {
+            if (estado == OK) return 100;
+            if (estado == PENDENTE) return 0;
+            if (estado == ERRO) return 0;
+            return etapa == ETAPA_PREPARANDO ? 8 : (etapa == ETAPA_BAIXANDO ? 50 : 92);
+        }
+
+        /** Texto curto do que está acontecendo. */
+        public String situacao() {
+            switch (estado) {
+                case PENDENTE: return "Na fila";
+                case OK: return "Concluído";
+                case ERRO: return mensagem.isEmpty() ? "Erro" : "Erro: " + mensagem;
+                default: return etapa == ETAPA_PREPARANDO ? "Preparando…" : (etapa == ETAPA_BAIXANDO ? "Baixando…" : "Salvando na pasta…");
+            }
         }
     }
 
@@ -80,6 +103,29 @@ public final class FilaDeDownload {
         return achado;
     }
 
+    /** Registra em que etapa um pedido está (e o título já descoberto, se houver). */
+    public static void etapa(Item item, int etapa, String titulo) {
+        item.etapa = etapa;
+        if (titulo != null && !titulo.isEmpty()) item.titulo = titulo;
+        avisar();
+    }
+
+    /** Qual mascote mostrar: aguardando, procurando, baixando, sucesso ou erro. */
+    public static String mascote() {
+        int[] c = contagem();
+        if (c[BAIXANDO] > 0) {
+            boolean baixando = false;
+            synchronized (itens) {
+                for (Item i : itens) if (i.estado == BAIXANDO && i.etapa != ETAPA_PREPARANDO) baixando = true;
+            }
+            return baixando ? "baixando" : "procurando";
+        }
+        if (c[PENDENTE] > 0) return "procurando";
+        if (c[ERRO] > 0) return "erro";
+        if (c[OK] > 0) return "sucesso";
+        return "aguardando";
+    }
+
     public static void concluir(Item item, boolean ok, String mensagem) {
         item.mensagem = mensagem == null ? "" : mensagem;
         item.estado = ok ? OK : ERRO;
@@ -123,6 +169,7 @@ public final class FilaDeDownload {
             for (Item i : itens) {
                 if (i.estado == ERRO) {
                     i.estado = PENDENTE;
+                    i.etapa = ETAPA_PREPARANDO;
                     i.mensagem = "";
                     n++;
                 }

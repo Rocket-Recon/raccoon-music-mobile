@@ -57,7 +57,8 @@ public class BaixarService extends Service {
             atualizarAndamento(item.rotulo());
             Baixador.Resultado r;
             try {
-                r = Baixador.baixar(this, item.entrada, item.arvore, item.nome, item.formato, item.taxa);
+                final FilaDeDownload.Item atual = item;
+                r = Baixador.baixar(this, item.entrada, item.arvore, item.nome, item.formato, item.taxa, (e, t) -> FilaDeDownload.etapa(atual, e, t));
             } catch (Throwable e) {
                 r = new Baixador.Resultado(false, "Não consegui baixar essa música.");
             }
