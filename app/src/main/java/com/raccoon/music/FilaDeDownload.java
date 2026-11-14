@@ -60,6 +60,8 @@ public final class FilaDeDownload {
     private static final List<Item> itens = new ArrayList<>();
     private static final List<Runnable> ouvintes = new CopyOnWriteArrayList<>();
     private static int proximoId = 1;
+    private static final List<String> registro = new ArrayList<>();
+    private static final int MAX_REGISTRO = 200;
 
     private FilaDeDownload() {
     }
@@ -70,6 +72,21 @@ public final class FilaDeDownload {
 
     public static void naoOuvir(Runnable ouvinte) {
         ouvintes.remove(ouvinte);
+    }
+
+    /** Acrescenta uma linha com a hora ao registro mostrado na tela de download. */
+    public static void anotar(String texto) {
+        String hora = new java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.ROOT).format(new java.util.Date());
+        synchronized (registro) {
+            registro.add("[" + hora + "] " + texto);
+            while (registro.size() > MAX_REGISTRO) registro.remove(0);
+        }
+    }
+
+    public static List<String> registro() {
+        synchronized (registro) {
+            return new ArrayList<>(registro);
+        }
     }
 
     private static void avisar() {
@@ -84,6 +101,7 @@ public final class FilaDeDownload {
                 itens.add(new Item(proximoId++, entradas.get(i), nome, arvore, formato, taxa));
             }
         }
+        anotar(entradas.size() == 1 ? "Na fila: " + (nomes != null && !nomes.isEmpty() && !nomes.get(0).isEmpty() ? nomes.get(0) : entradas.get(0)) : entradas.size() + " músicas na fila.");
         avisar();
     }
 
@@ -106,7 +124,10 @@ public final class FilaDeDownload {
     /** Registra em que etapa um pedido está (e o título já descoberto, se houver). */
     public static void etapa(Item item, int etapa, String titulo) {
         item.etapa = etapa;
-        if (titulo != null && !titulo.isEmpty()) item.titulo = titulo;
+        if (titulo != null && !titulo.isEmpty()) {
+            item.titulo = titulo;
+            anotar("Baixando: " + titulo);
+        }
         avisar();
     }
 
@@ -129,6 +150,7 @@ public final class FilaDeDownload {
     public static void concluir(Item item, boolean ok, String mensagem) {
         item.mensagem = mensagem == null ? "" : mensagem;
         item.estado = ok ? OK : ERRO;
+        anotar(ok ? "Concluído: " + item.rotulo() : "Erro em " + item.rotulo() + ": " + item.mensagem);
         avisar();
     }
 
@@ -186,6 +208,7 @@ public final class FilaDeDownload {
                 if (itens.get(i).estado == PENDENTE) itens.remove(i);
             }
         }
+        anotar("Fila cancelada.");
         avisar();
     }
 

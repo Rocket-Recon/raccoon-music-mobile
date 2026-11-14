@@ -22,6 +22,8 @@ public final class BarraDeProgresso extends View {
     private int valor;  // 0..100
     private boolean indeterminada;
     private boolean animando = true;
+    private boolean mostrarTexto;
+    private String rotulo = "";
 
     public BarraDeProgresso(Context contexto) {
         super(contexto);
@@ -40,6 +42,30 @@ public final class BarraDeProgresso extends View {
         this.valor = Math.max(0, Math.min(100, valor));
         this.indeterminada = indeterminada;
         invalidate();
+    }
+
+    /** Liga o texto (porcentagem) escrito no centro da barra. */
+    public void setMostrarPorcentagem(boolean ligado) {
+        mostrarTexto = ligado;
+        invalidate();
+    }
+
+    public void rotulo(String texto) {
+        rotulo = texto == null ? "" : texto;
+        invalidate();
+    }
+
+    private void escreverRotulo(Canvas c, float w, float h) {
+        if (!mostrarTexto || rotulo.isEmpty()) return;
+        pincel.setShader(null);
+        pincel.setStyle(Paint.Style.FILL);
+        pincel.setColor(0xFFFFFFFF);
+        pincel.setTextAlign(Paint.Align.CENTER);
+        pincel.setFakeBoldText(true);
+        pincel.setTextSize(h * 0.5f);
+        c.drawText(rotulo, w / 2f, h / 2f - (pincel.descent() + pincel.ascent()) / 2f, pincel);
+        pincel.setFakeBoldText(false);
+        pincel.setTextAlign(Paint.Align.LEFT);
     }
 
     public void animar(boolean ligado) {
@@ -96,6 +122,7 @@ public final class BarraDeProgresso extends View {
             fim = inicio + largura;
         }
         if (fim - inicio < 1f) {
+            escreverRotulo(c, w, h);
             agendar();
             return;
         }
@@ -162,6 +189,7 @@ public final class BarraDeProgresso extends View {
             for (float x = bloco; x < w; x += bloco + 3f) c.drawRect(x, 0, x + 3f, h, pincel);
         }
         c.restore();
+        escreverRotulo(c, w, h);
         agendar();
     }
 

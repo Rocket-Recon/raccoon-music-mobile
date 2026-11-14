@@ -331,6 +331,7 @@ public class MainActivity extends Activity {
             }
             prefs.arvore(arvore.toString());
             atualizarBiblioteca();
+            if (redesenharFila != null) redesenharFila.run();
         }
         if (pedido == PEDIDO_EXPORTAR_TEXTO && resultado == RESULT_OK && dados != null && dados.getData() != null) {
             gravarListaExportada(dados.getData());
@@ -3640,7 +3641,7 @@ public class MainActivity extends Activity {
                 aplicar.run();
             }));
 
-            controles.addView(tituloDeBloco("Formato (vale para as três)"));
+            controles.addView(tituloDeBloco("Formato"));
             controles.addView(gradeDeOpcoes(BarraEstilo.FORMATOS, estilo.formato, c -> {
                 estilo.formato(c);
                 aplicar.run();
@@ -4026,7 +4027,6 @@ public class MainActivity extends Activity {
         raiz.addView(meio, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
         raiz.addView(montarMini(), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        if (BARRA_INFERIOR) raiz.addView(montarBarraInferior(), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(58)));
 
         FrameLayout tudo = new FrameLayout(this);
         tudo.setBackgroundColor(FUNDO);
@@ -4440,64 +4440,7 @@ public class MainActivity extends Activity {
         return g;
     }
 
-    /** Liga (true) ou desliga (false) a barra de abas no rodapé; desligada, só o menu lateral navega. */
-    private static final boolean BARRA_INFERIOR = true;
-    private static final String[] ABAS_NOMES = {"Início", "Biblioteca", "Playlists", "Baixar", "Menu"};
-    private static final int[] ABAS_ICONES = {IconeView.CASA, IconeView.NOTA, IconeView.PLAYLIST, IconeView.DOWNLOAD, IconeView.MENU};
-    private LinearLayout[] abasInferiores;
-
-    /** Abas fixas no rodapé (Início, Biblioteca, Playlists, Baixar e Menu), no padrão dos apps de música. */
-    private View montarBarraInferior() {
-        LinearLayout barra = new LinearLayout(this);
-        barra.setBackgroundColor(CARTAO);
-        abasInferiores = new LinearLayout[ABAS_NOMES.length];
-        for (int i = 0; i < ABAS_NOMES.length; i++) {
-            final int aba = i;
-            LinearLayout cel = new LinearLayout(this);
-            cel.setOrientation(LinearLayout.VERTICAL);
-            cel.setGravity(Gravity.CENTER);
-            IconeView ic = new IconeView(this, ABAS_ICONES[i]);
-            ic.definir(ABAS_ICONES[i], ICONE);
-            cel.addView(ic, new LinearLayout.LayoutParams(dp(24), dp(24)));
-            TextView t = texto(11, TEXTO, false);
-            t.setText(ABAS_NOMES[i]);
-            t.setGravity(Gravity.CENTER);
-            t.setPadding(0, dp(2), 0, 0);
-            cel.addView(t);
-            cel.setBackground(toque(null, forma(0xFF000000, 12, 0)));
-            cel.setOnClickListener(v -> {
-                switch (aba) {
-                    case 0: irPara(SECAO_INICIO); break;
-                    case 1: irPara(SECAO_MUSICAS); break;
-                    case 2: irPara(SECAO_PLAYLISTS); break;
-                    case 3: baixarNoCelular(); break;
-                    default: abrirGaveta(); break;
-                }
-            });
-            abasInferiores[i] = cel;
-            barra.addView(cel, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
-        }
-        marcarBarraInferior();
-        return barra;
-    }
-
-    /** Destaca a aba da seção atual: Início, Playlists ou Biblioteca (as demais listas pertencem a ela). */
-    private void marcarBarraInferior() {
-        if (abasInferiores == null) return;
-        int atual = secao == SECAO_COLECAO ? secaoAnterior : secao;
-        int destaque = atual == SECAO_INICIO ? 0 : (atual == SECAO_PLAYLISTS ? 2 : 1);
-        for (int i = 0; i < abasInferiores.length; i++) {
-            if (abasInferiores[i] == null) continue;
-            boolean marcada = i == destaque;
-            ((IconeView) abasInferiores[i].getChildAt(0)).definir(ABAS_ICONES[i], marcada ? ACENTO : ICONE);
-            TextView t = (TextView) abasInferiores[i].getChildAt(1);
-            t.setTextColor(marcada ? ACENTO : SUAVE);
-            t.setTypeface(null, marcada ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
-        }
-    }
-
     private void marcarSecao() {
-        marcarBarraInferior();
         for (int i = 0; i < linhasSecao.length; i++) {
             if (linhasSecao[i] == null) continue;
             boolean atual = i == (secao == SECAO_COLECAO ? secaoAnterior : secao);
@@ -4650,101 +4593,176 @@ public class MainActivity extends Activity {
         return b;
     }
 
-    private TextView botaoDeTexto(String rotulo, boolean principal) {
-        TextView t = texto(14, principal ? 0xFFFFFFFF : TEXTO, true);
+    private static final int VERDE = 0xFF22C55E, VERMELHO = 0xFFB92B2B, NEUTRO = 0xFF363C4A, BRANCO = 0xFFFFFFFF;
+
+    /** Botão no estilo do PC: cor cheia, borda branca fina e cantos pouco arredondados. */
+    private TextView botaoDoPc(String rotulo, int cor) {
+        TextView t = texto(15, BRANCO, true);
         t.setGravity(Gravity.CENTER);
-        t.setPadding(dp(16), dp(10), dp(16), dp(10));
-        t.setBackground(toque(forma(principal ? ACENTO : CARTAO, 20, principal ? 0 : LINHA), forma(0xFFFFFFFF, 20, 0)));
         t.setText(rotulo);
+        t.setSingleLine(true);
+        t.setPadding(dp(8), dp(11), dp(8), dp(11));
+        t.setBackground(toque(forma(cor, 8, BRANCO), forma(0x33FFFFFF, 8, BRANCO)));
         return t;
     }
 
-    /** Tela de download: mascote e andamento geral, campo grande para vários links e a fila com uma barra por música. */
+    /** Nome legível da pasta de músicas escolhida ("primary/Music"). */
+    private String nomeDaPasta() {
+        String a = prefs.arvore();
+        if (a == null) return "Escolha a pasta de músicas";
+        String id = Uri.decode(a);
+        int i = id.lastIndexOf("/tree/");
+        if (i >= 0) id = id.substring(i + 6);
+        return id.replace(':', '/');
+    }
+
+    private LinearLayout linhaDeSeletor(String rotulo, TextView valor) {
+        LinearLayout l = new LinearLayout(this);
+        l.setGravity(Gravity.CENTER_VERTICAL | Gravity.END);
+        TextView r = texto(15, BRANCO, true);
+        r.setText(rotulo);
+        r.setPadding(0, 0, dp(10), 0);
+        l.addView(r);
+        valor.setGravity(Gravity.CENTER);
+        valor.setBackground(forma(NEUTRO, 4, BRANCO));
+        valor.setPadding(dp(10), dp(8), dp(10), dp(8));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(130), ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(0, dp(3), 0, dp(3));
+        l.addView(valor, lp);
+        return l;
+    }
+
+    private Runnable redesenharGerenciar;
+
+    /** Tela de download, no desenho do app do PC: campo grande, pasta, formato, mascote, barra, botões e registro. */
     private void abrirTelaDeDownload() {
         final android.app.Dialog tela = new android.app.Dialog(this, android.R.style.Theme_Material_NoActionBar);
         final LinearLayout raiz = new LinearLayout(this);
         raiz.setOrientation(LinearLayout.VERTICAL);
         raiz.setBackgroundColor(FUNDO);
+        raiz.setPadding(dp(10), dp(10), dp(10), dp(10));
         raiz.setOnApplyWindowInsetsListener((v, ins) -> {
-            v.setPadding(0, ins.getSystemWindowInsetTop(), 0, ins.getSystemWindowInsetBottom());
+            v.setPadding(dp(10), ins.getSystemWindowInsetTop() + dp(10), dp(10), ins.getSystemWindowInsetBottom() + dp(10));
             return ins;
         });
 
-        LinearLayout topo = new LinearLayout(this);
-        topo.setGravity(Gravity.CENTER_VERTICAL);
-        topo.setPadding(dp(8), dp(8), dp(16), dp(8));
-        IconeView voltar = new IconeView(this, IconeView.SETA);
-        voltar.definir(IconeView.SETA, TEXTO);
-        voltar.setRotation(180);
-        voltar.setPadding(dp(10), dp(10), dp(10), dp(10));
-        voltar.setOnClickListener(v -> tela.dismiss());
-        topo.addView(voltar, new LinearLayout.LayoutParams(dp(48), dp(48)));
-        TextView titulo = texto(20, TEXTO, true);
-        titulo.setText("Baixar músicas");
-        topo.addView(titulo, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        TextView ajustes = texto(14, ACENTO, true);
-        ajustes.setText("Ajustes");
-        ajustes.setPadding(dp(10), dp(8), 0, dp(8));
-        ajustes.setOnClickListener(v -> ajustesDoDownload());
-        topo.addView(ajustes);
-        raiz.addView(topo);
-
-        ScrollView rolagem = new ScrollView(this);
-        rolagem.setFillViewport(true);
-        final LinearLayout col = new LinearLayout(this);
-        col.setOrientation(LinearLayout.VERTICAL);
-        col.setPadding(dp(16), dp(4), dp(16), dp(24));
-        rolagem.addView(col);
-        raiz.addView(rolagem, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
-
-        // status: mascote, frase, detalhe e a barra geral
-        LinearLayout status = new LinearLayout(this);
-        status.setGravity(Gravity.CENTER_VERTICAL);
-        status.setBackground(forma(CARTAO, 16, LINHA));
-        status.setPadding(dp(14), dp(12), dp(14), dp(14));
-        final ImageView mascote = new ImageView(this);
-        mascote.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        status.addView(mascote, new LinearLayout.LayoutParams(dp(92), dp(92)));
-        LinearLayout lado = new LinearLayout(this);
-        lado.setOrientation(LinearLayout.VERTICAL);
-        lado.setPadding(dp(14), 0, 0, 0);
-        final TextView frase = texto(16, TEXTO, true);
-        final TextView detalhe = texto(13, SUAVE, false);
-        detalhe.setPadding(0, dp(2), 0, 0);
-        lado.setGravity(Gravity.CENTER_VERTICAL);
-        final BarraDeProgresso geral = novaBarra(1, prefs.barras(), 14);
-        lado.addView(frase);
-        lado.addView(detalhe);
-        lado.addView(geral);
-        status.addView(lado, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        col.addView(status);
-
-        // campo grande
-        LinearLayout entrada = new LinearLayout(this);
-        entrada.setOrientation(LinearLayout.VERTICAL);
-        entrada.setBackground(forma(CARTAO, 16, LINHA));
-        entrada.setPadding(dp(14), dp(12), dp(14), dp(14));
-        TextView rotuloEntrada = texto(15, TEXTO, true);
-        rotuloEntrada.setText("Links ou nomes das músicas");
-        entrada.addView(rotuloEntrada);
+        // campo de entrada, com Limpar e Organizar no canto
+        FrameLayout entrada = new FrameLayout(this);
         final EditText campo = new EditText(this);
         campo.setHint("Digite nomes de músicas ou insira URLs");
         campo.setHintTextColor(SUAVE);
         campo.setTextColor(TEXTO);
         campo.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
         campo.setMinLines(5);
-        campo.setMaxLines(10);
+        campo.setMaxLines(8);
         campo.setGravity(Gravity.TOP | Gravity.START);
         campo.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
-        campo.setBackground(forma(FUNDO, 14, LINHA));
-        campo.setPadding(dp(14), dp(12), dp(14), dp(12));
+        campo.setBackground(forma(0xFF000000, 2, BRANCO));
+        campo.setPadding(dp(12), dp(10), dp(12), dp(10));
         campo.setText(pedidoPendente);
-        LinearLayout.LayoutParams pc = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        pc.setMargins(0, dp(10), 0, dp(10));
-        entrada.addView(campo, pc);
-        TextView baixar = botaoDeTexto("Baixar", true);
-        LinearLayout.LayoutParams pbx = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        pbx.setMargins(0, dp(12), 0, 0);
+        entrada.addView(campo, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        LinearLayout cantos = new LinearLayout(this);
+        cantos.setOrientation(LinearLayout.VERTICAL);
+        TextView limpar = texto(14, BRANCO, false);
+        TextView organizar = texto(14, BRANCO, false);
+        for (TextView b : new TextView[] {limpar, organizar}) {
+            b.setGravity(Gravity.CENTER);
+            b.setBackground(forma(NEUTRO, 2, BRANCO));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(104), dp(32));
+            lp.setMargins(0, dp(2), 0, 0);
+            cantos.addView(b, lp);
+        }
+        limpar.setText("Limpar");
+        organizar.setText("Organizar");
+        limpar.setOnClickListener(v -> campo.setText(""));
+        organizar.setOnClickListener(v -> {
+            List<String> itens = Pedido.separar(campo.getText().toString());
+            campo.setText(TextUtils.join("\n", itens));
+            campo.setSelection(campo.getText().length());
+        });
+        FrameLayout.LayoutParams pc = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.END | Gravity.BOTTOM);
+        pc.setMargins(0, 0, dp(2), dp(2));
+        entrada.addView(cantos, pc);
+        raiz.addView(entrada);
+
+        // pasta
+        LinearLayout linhaPasta = new LinearLayout(this);
+        linhaPasta.setGravity(Gravity.CENTER_VERTICAL);
+        final TextView pasta = texto(14, TEXTO, false);
+        pasta.setSingleLine(true);
+        pasta.setEllipsize(TextUtils.TruncateAt.START);
+        pasta.setBackground(forma(0xFF000000, 2, BRANCO));
+        pasta.setPadding(dp(10), dp(9), dp(10), dp(9));
+        linhaPasta.addView(pasta, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView botaoPasta = texto(14, BRANCO, false);
+        botaoPasta.setText("Pasta");
+        botaoPasta.setGravity(Gravity.CENTER);
+        botaoPasta.setBackground(forma(NEUTRO, 2, BRANCO));
+        botaoPasta.setOnClickListener(v -> escolherPasta());
+        pasta.setOnClickListener(v -> escolherPasta());
+        LinearLayout.LayoutParams pbp = new LinearLayout.LayoutParams(dp(104), ViewGroup.LayoutParams.MATCH_PARENT);
+        pbp.setMargins(dp(6), 0, 0, 0);
+        linhaPasta.addView(botaoPasta, pbp);
+        LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        plp.setMargins(0, dp(6), 0, dp(2));
+        raiz.addView(linhaPasta, plp);
+
+        // formato e taxa
+        final TextView formato = texto(14, BRANCO, false);
+        final TextView taxa = texto(14, BRANCO, false);
+        formato.setOnClickListener(v -> new Construtor().setTitle("Formato do áudio")
+                .setSingleChoiceItems(Pedido.FORMATOS, java.util.Arrays.asList(Pedido.FORMATOS).indexOf(prefs.baixarFormato()), (d, q) -> {
+                    prefs.baixarFormato(Pedido.FORMATOS[q]);
+                    d.dismiss();
+                    if (redesenharFila != null) redesenharFila.run();
+                }).show());
+        taxa.setOnClickListener(v -> {
+            String[] nomes = new String[Pedido.TAXAS.length];
+            int atual = 0;
+            for (int i = 0; i < nomes.length; i++) {
+                nomes[i] = Pedido.TAXAS[i] + "kbps";
+                if (Pedido.TAXAS[i] == prefs.baixarTaxa()) atual = i;
+            }
+            new Construtor().setTitle("Taxa de bits").setSingleChoiceItems(nomes, atual, (d, q) -> {
+                prefs.baixarTaxa(Pedido.TAXAS[q]);
+                d.dismiss();
+                if (redesenharFila != null) redesenharFila.run();
+            }).show();
+        });
+        raiz.addView(linhaDeSeletor("Formato do áudio:", formato));
+        raiz.addView(linhaDeSeletor("Taxa de bits:", taxa));
+
+        // mascote: ocupa o espaço que sobra
+        final ImageView mascote = new ImageView(this);
+        mascote.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        mascote.setAdjustViewBounds(true);
+        LinearLayout.LayoutParams pm = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
+        pm.setMargins(0, dp(6), 0, dp(6));
+        raiz.addView(mascote, pm);
+
+        // barra e situação
+        final BarraDeProgresso geral = novaBarra(1, prefs.barras(), 30);
+        geral.setMostrarPorcentagem(true);
+        FrameLayout moldura = new FrameLayout(this);
+        moldura.setBackground(forma(0xFF555555, 2, BRANCO));
+        moldura.setPadding(dp(1), dp(1), dp(1), dp(1));
+        moldura.addView(geral);
+        raiz.addView(moldura, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(32)));
+        final TextView frase = texto(15, TEXTO, false);
+        frase.setGravity(Gravity.CENTER);
+        frase.setPadding(0, dp(8), 0, dp(8));
+        raiz.addView(frase);
+
+        // Baixar, Cancelar e Gerenciar
+        LinearLayout botoes = new LinearLayout(this);
+        TextView baixar = botaoDoPc("Baixar", VERDE);
+        TextView cancelar = botaoDoPc("Cancelar", VERMELHO);
+        TextView gerenciar = botaoDoPc("Gerenciar", NEUTRO);
+        for (TextView b : new TextView[] {baixar, cancelar, gerenciar}) {
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            lp.setMargins(dp(4), 0, dp(4), 0);
+            botoes.addView(b, lp);
+        }
         baixar.setOnClickListener(v -> {
             String t = campo.getText().toString().trim();
             if (t.isEmpty()) {
@@ -4762,105 +4780,61 @@ public class MainActivity extends Activity {
             pedidoPendente = "";
             baixarTexto(t);
         });
-        entrada.addView(baixar, pbx);
-        LinearLayout.LayoutParams pe = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        pe.setMargins(0, dp(12), 0, 0);
-        col.addView(entrada, pe);
+        cancelar.setOnClickListener(v -> {
+            if (!FilaDeDownload.ativa()) return;
+            FilaDeDownload.cancelarPendentes();
+            Toast.makeText(this, "O que já está baixando termina.", Toast.LENGTH_SHORT).show();
+        });
+        gerenciar.setOnClickListener(v -> dialogoGerenciar());
+        raiz.addView(botoes);
 
-        // fila
-        final LinearLayout fila = new LinearLayout(this);
-        fila.setOrientation(LinearLayout.VERTICAL);
-        fila.setBackground(forma(CARTAO, 16, LINHA));
-        fila.setPadding(dp(14), dp(12), dp(14), dp(14));
-        LinearLayout.LayoutParams pf = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        pf.setMargins(0, dp(12), 0, 0);
-        col.addView(fila, pf);
+        // registro
+        final TextView registro = texto(12, TEXTO, false);
+        registro.setTypeface(android.graphics.Typeface.MONOSPACE);
+        registro.setPadding(dp(8), dp(6), dp(8), dp(6));
+        final ScrollView rolagemDoRegistro = new ScrollView(this);
+        rolagemDoRegistro.setBackground(forma(0xFF000000, 2, BRANCO));
+        rolagemDoRegistro.addView(registro);
+        LinearLayout.LayoutParams prg = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(96));
+        prg.setMargins(0, dp(10), 0, 0);
+        raiz.addView(rolagemDoRegistro, prg);
 
         redesenharFila = () -> {
             pedidoPendente = campo.getText().toString();
-            BarraEstilo estilo = prefs.barras();
+            pasta.setText(nomeDaPasta());
+            formato.setText(prefs.baixarFormato().toUpperCase() + "  ▾");
+            taxa.setText(prefs.baixarTaxa() + "kbps  ▾");
             List<FilaDeDownload.Item> itens = FilaDeDownload.copia();
             int[] n = FilaDeDownload.contagem();
-            String mascoteAtual = FilaDeDownload.mascote();
-            mascote.setImageResource(imagemDoMascote(mascoteAtual));
+            mascote.setImageResource(imagemDoMascote(FilaDeDownload.mascote()));
             int total = itens.size();
-            int feitos = n[FilaDeDownload.OK] + n[FilaDeDownload.ERRO];
             double soma = 0;
             boolean preparando = false;
             for (FilaDeDownload.Item it : itens) {
                 soma += it.percentual();
                 if (it.estado == FilaDeDownload.BAIXANDO && it.etapa == FilaDeDownload.ETAPA_PREPARANDO) preparando = true;
             }
-            int geralPct = total == 0 ? 0 : (int) Math.round(soma / total);
+            int pct = total == 0 ? 0 : (int) Math.round(soma / total);
             boolean ativa = n[FilaDeDownload.PENDENTE] + n[FilaDeDownload.BAIXANDO] > 0;
-            if (total == 0) {
-                frase.setText("Pronto para baixar");
-                detalhe.setText("");
-            } else if (ativa) {
-                frase.setText(preparando && n[FilaDeDownload.OK] == 0 ? "Preparando…" : "Baixando…");
-                detalhe.setText(feitos + " de " + total + (n[FilaDeDownload.ERRO] > 0 ? " · " + n[FilaDeDownload.ERRO] + " com erro" : ""));
-            } else {
-                frase.setText(n[FilaDeDownload.ERRO] > 0 ? "Terminou com erros" : "Concluído");
-                detalhe.setText(n[FilaDeDownload.OK] + " de " + total + " baixadas" + (n[FilaDeDownload.ERRO] > 0 ? " · " + n[FilaDeDownload.ERRO] + " com erro" : ""));
+            if (total == 0) frase.setText("Aguardando... 💭");
+            else if (ativa) frase.setText((preparando ? "Preparando" : "Baixando") + "… " + (n[FilaDeDownload.OK] + n[FilaDeDownload.ERRO]) + " de " + total);
+            else frase.setText(n[FilaDeDownload.ERRO] > 0 ? "Terminou com " + n[FilaDeDownload.ERRO] + " erro(s)" : "Concluído");
+            int tipo = ativa ? (preparando && pct < 20 ? 0 : 1) : (total > 0 && n[FilaDeDownload.ERRO] == 0 ? 2 : 1);
+            geral.definir(tipo, prefs.barras(), ACENTO, 0xFF555555);
+            geral.valor(ativa ? pct : (total > 0 ? 100 : 0), false);
+            geral.rotulo((ativa ? pct : (total > 0 ? 100 : 0)) + "%");
+            StringBuilder sb = new StringBuilder();
+            for (String linha : FilaDeDownload.registro()) sb.append(linha).append('\n');
+            if (!sb.toString().contentEquals(registro.getText())) {
+                registro.setText(sb.toString());
+                rolagemDoRegistro.post(() -> rolagemDoRegistro.fullScroll(View.FOCUS_DOWN));
             }
-            detalhe.setVisibility(detalhe.getText().length() == 0 ? View.GONE : View.VISIBLE);
-            int tipo = ativa ? (preparando && geralPct < 20 ? 0 : 1) : (total > 0 && n[FilaDeDownload.ERRO] == 0 ? 2 : 1);
-            geral.definir(tipo, estilo, ACENTO, LINHA);
-            geral.valor(ativa ? geralPct : (total > 0 ? 100 : 0), tipo == 0);
-
-            fila.removeAllViews();
-            TextView cab = texto(15, TEXTO, true);
-            cab.setText("Fila");
-            fila.addView(cab);
-            if (itens.isEmpty()) {
-                TextView vazio = texto(13, SUAVE, false);
-                vazio.setText("Nada na fila.");
-                vazio.setPadding(0, dp(6), 0, 0);
-                fila.addView(vazio);
-                return;
-            }
-            for (FilaDeDownload.Item it : itens) {
-                TextView nome = texto(14, it.estado == FilaDeDownload.ERRO ? 0xFFE5484D : TEXTO, false);
-                nome.setSingleLine(true);
-                nome.setEllipsize(TextUtils.TruncateAt.END);
-                nome.setText(it.rotulo());
-                nome.setPadding(0, dp(12), 0, dp(2));
-                fila.addView(nome);
-                TextView sit = texto(12, it.estado == FilaDeDownload.OK ? ACENTO : SUAVE, false);
-                sit.setText(it.situacao());
-                sit.setPadding(0, 0, 0, dp(6));
-                fila.addView(sit);
-                int barra = it.estado == FilaDeDownload.OK ? 2 : (it.estado == FilaDeDownload.BAIXANDO && it.etapa == FilaDeDownload.ETAPA_PREPARANDO ? 0 : 1);
-                BarraDeProgresso b = novaBarra(barra, estilo, 8);
-                b.valor(it.percentual(), it.estado == FilaDeDownload.BAIXANDO && it.etapa == FilaDeDownload.ETAPA_BAIXANDO);
-                fila.addView(b);
-            }
-            LinearLayout acoes = new LinearLayout(this);
-            acoes.setPadding(0, dp(14), 0, 0);
-            if (n[FilaDeDownload.PENDENTE] > 0) {
-                TextView cancelar = botaoDeTexto("Cancelar os que faltam", false);
-                cancelar.setOnClickListener(v -> FilaDeDownload.cancelarPendentes());
-                acoes.addView(cancelar, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-            }
-            if (n[FilaDeDownload.ERRO] > 0 && !ativa) {
-                TextView de_novo = botaoDeTexto("Tentar de novo", true);
-                de_novo.setOnClickListener(v -> {
-                    if (FilaDeDownload.tentarDeNovo() > 0) startServicoDeDownload();
-                });
-                acoes.addView(de_novo, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-            }
-            if (n[FilaDeDownload.OK] > 0 || (n[FilaDeDownload.ERRO] > 0 && !ativa)) {
-                TextView limpar = botaoDeTexto("Limpar prontos", false);
-                limpar.setOnClickListener(v -> FilaDeDownload.limparConcluidos());
-                LinearLayout.LayoutParams pl = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-                if (acoes.getChildCount() > 0) pl.setMargins(dp(8), 0, 0, 0);
-                acoes.addView(limpar, pl);
-            }
-            if (acoes.getChildCount() > 0) fila.addView(acoes);
+            if (redesenharGerenciar != null) redesenharGerenciar.run();
         };
         tela.setOnDismissListener(x -> {
             pedidoPendente = campo.getText().toString();
             redesenharFila = null;
+            redesenharGerenciar = null;
         });
         tela.setContentView(raiz);
         if (tela.getWindow() != null) {
@@ -4870,6 +4844,52 @@ public class MainActivity extends Activity {
         }
         tela.show();
         redesenharFila.run();
+    }
+
+    /** Gerenciar: cada pedido da fila com a sua barra, mais Tentar de novo e Limpar prontos. */
+    private void dialogoGerenciar() {
+        final LinearLayout lista = new LinearLayout(this);
+        lista.setOrientation(LinearLayout.VERTICAL);
+        lista.setPadding(dp(20), dp(8), dp(20), dp(8));
+        final ScrollView rolagem = new ScrollView(this);
+        rolagem.addView(lista);
+        final AlertDialog dialogo = new Construtor().setTitle("Fila de downloads").setView(rolagem)
+                .setPositiveButton("Fechar", null)
+                .setNeutralButton("Limpar prontos", (d, q) -> FilaDeDownload.limparConcluidos())
+                .setNegativeButton("Tentar de novo", (d, q) -> {
+                    if (FilaDeDownload.tentarDeNovo() > 0) startServicoDeDownload();
+                })
+                .create();
+        redesenharGerenciar = () -> {
+            BarraEstilo estilo = prefs.barras();
+            lista.removeAllViews();
+            List<FilaDeDownload.Item> itens = FilaDeDownload.copia();
+            if (itens.isEmpty()) {
+                TextView vazio = texto(14, SUAVE, false);
+                vazio.setText("Nada na fila.");
+                lista.addView(vazio);
+                return;
+            }
+            for (FilaDeDownload.Item it : itens) {
+                TextView nome = texto(14, it.estado == FilaDeDownload.ERRO ? 0xFFE5484D : TEXTO, false);
+                nome.setSingleLine(true);
+                nome.setEllipsize(TextUtils.TruncateAt.END);
+                nome.setText(it.rotulo());
+                nome.setPadding(0, dp(10), 0, dp(2));
+                lista.addView(nome);
+                TextView sit = texto(12, SUAVE, false);
+                sit.setText(it.situacao());
+                sit.setPadding(0, 0, 0, dp(5));
+                lista.addView(sit);
+                int barra = it.estado == FilaDeDownload.OK ? 2 : (it.estado == FilaDeDownload.BAIXANDO && it.etapa == FilaDeDownload.ETAPA_PREPARANDO ? 0 : 1);
+                BarraDeProgresso b = novaBarra(barra, estilo, 8);
+                b.valor(it.percentual(), it.estado == FilaDeDownload.BAIXANDO && it.etapa == FilaDeDownload.ETAPA_BAIXANDO);
+                lista.addView(b);
+            }
+        };
+        dialogo.setOnDismissListener(d -> redesenharGerenciar = null);
+        dialogo.show();
+        redesenharGerenciar.run();
     }
 
     /** Atalho antigo da fila: abre a tela de download. */
