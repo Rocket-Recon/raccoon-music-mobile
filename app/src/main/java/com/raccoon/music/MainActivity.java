@@ -3588,7 +3588,7 @@ public class MainActivity extends Activity {
                 exemplos[i].definir(i, estilo, ACENTO, LINHA);
                 exemplos[i].valor(valores[i], i == 0 && valores[i] == 0);
             }
-            montar.run();
+            montar[0].run();
         };
         montar[0] = () -> {
             controles.removeAllViews();
