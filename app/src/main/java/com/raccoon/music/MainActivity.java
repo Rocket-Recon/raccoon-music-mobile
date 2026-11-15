@@ -3398,6 +3398,7 @@ public class MainActivity extends Activity {
                     ViewGroup.LayoutParams lp = t.getLayoutParams();
                     if (lp instanceof ViewGroup.MarginLayoutParams) ((ViewGroup.MarginLayoutParams) lp).setMargins(dp(4), dp(4), dp(4), dp(4));
                 }
+                organizarBotoes(d);
                 int idTitulo = getResources().getIdentifier("alertTitle", "id", "android");
                 View titulo = idTitulo == 0 ? null : d.findViewById(idTitulo);
                 if (titulo instanceof TextView) ((TextView) titulo).setTextColor(TEXTO);
@@ -3405,6 +3406,49 @@ public class MainActivity extends Activity {
                 // o visual padrao do dialogo continua valendo
             }
             return d;
+        }
+    }
+
+    /** Refaz a fileira de botões do diálogo: lado a lado, de larguras iguais, confirmar à esquerda e cancelar à direita. */
+    private void organizarBotoes(AlertDialog d) {
+        TextView positivo = d.getButton(AlertDialog.BUTTON_POSITIVE);
+        TextView neutro = d.getButton(AlertDialog.BUTTON_NEUTRAL);
+        TextView negativo = d.getButton(AlertDialog.BUTTON_NEGATIVE);
+        List<TextView> ordem = new ArrayList<>();
+        if (positivo != null && positivo.getVisibility() == View.VISIBLE) ordem.add(positivo);
+        if (neutro != null && neutro.getVisibility() == View.VISIBLE) ordem.add(neutro);
+        if (negativo != null && negativo.getVisibility() == View.VISIBLE) ordem.add(negativo);
+        if (ordem.isEmpty() || !(ordem.get(0).getParent() instanceof ViewGroup)) return;
+        ViewGroup barra = (ViewGroup) ordem.get(0).getParent();
+        if (barra.getParent() instanceof ViewGroup) {
+            ViewGroup pai = (ViewGroup) barra.getParent();
+            int posicao = pai.indexOfChild(barra);
+            // com três botões, o neutro ocupa a linha de cima e confirmar/cancelar ficam lado a lado embaixo
+            LinearLayout fileira = new LinearLayout(this);
+            fileira.setOrientation(LinearLayout.VERTICAL);
+            fileira.setPadding(dp(14), dp(6), dp(14), dp(12));
+            barra.removeAllViews();
+            LinearLayout linhaDeBaixo = new LinearLayout(this);
+            for (TextView t : ordem) {
+                t.setSingleLine(true);
+                t.setEllipsize(TextUtils.TruncateAt.END);
+                t.setGravity(Gravity.CENTER);
+                t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+                t.setMinWidth(0);
+                t.setMinimumWidth(0);
+                t.setPadding(dp(6), dp(9), dp(6), dp(9));
+                boolean emCima = ordem.size() == 3 && t == neutro;
+                LinearLayout.LayoutParams p = emCima
+                        ? new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                        : new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+                p.setMargins(dp(4), dp(emCima ? 0 : 0), dp(4), dp(emCima ? 6 : 0));
+                if (emCima) fileira.addView(t, p);
+                else linhaDeBaixo.addView(t, p);
+            }
+            fileira.addView(linhaDeBaixo, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            ViewGroup.LayoutParams lpBarra = barra.getLayoutParams();
+            pai.removeViewAt(posicao);
+            pai.addView(fileira, posicao, lpBarra == null ? new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT) : lpBarra);
         }
     }
 
@@ -4678,21 +4722,15 @@ public class MainActivity extends Activity {
             return ins;
         });
 
-        // cabeçalho: menu lateral, título e fechar
+        // cabeçalho: seta de voltar (no lugar do menu lateral) e título
         LinearLayout cabecalho = new LinearLayout(this);
         cabecalho.setGravity(Gravity.CENTER_VERTICAL);
-        FrameLayout celulaMenu = new FrameLayout(this);
-        icone(IconeView.MENU, 24, () -> {
-            tela.dismiss();
-            abrirGaveta();
-        }, celulaMenu).definir(IconeView.MENU, TEXTO);
-        cabecalho.addView(celulaMenu, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        FrameLayout celulaVoltar = new FrameLayout(this);
+        icone(IconeView.SETA, 24, tela::dismiss, celulaVoltar).definir(IconeView.SETA, TEXTO);
+        cabecalho.addView(celulaVoltar, new LinearLayout.LayoutParams(dp(44), dp(44)));
         TextView tituloDaTela = texto(16, TEXTO, true);
         tituloDaTela.setText("Baixar música");
         cabecalho.addView(tituloDaTela, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        FrameLayout celulaFechar = new FrameLayout(this);
-        icone(IconeView.FECHAR, 20, tela::dismiss, celulaFechar).definir(IconeView.FECHAR, TEXTO);
-        cabecalho.addView(celulaFechar, new LinearLayout.LayoutParams(dp(44), dp(44)));
         raiz.addView(cabecalho);
 
         // campo de entrada, com Limpar e Organizar no canto
@@ -4785,6 +4823,7 @@ public class MainActivity extends Activity {
         final ImageView mascote = new ImageView(this);
         mascote.setScaleType(ImageView.ScaleType.FIT_CENTER);
         mascote.setAdjustViewBounds(true);
+        mascote.setPadding(dp(12), dp(10), dp(12), dp(10));
         LinearLayout.LayoutParams pm = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
         pm.setMargins(0, dp(6), 0, dp(6));
         raiz.addView(mascote, pm);
