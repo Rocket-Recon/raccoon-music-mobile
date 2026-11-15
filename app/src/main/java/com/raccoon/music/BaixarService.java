@@ -58,7 +58,10 @@ public class BaixarService extends Service {
             Baixador.Resultado r;
             try {
                 final FilaDeDownload.Item atual = item;
-                r = Baixador.baixar(this, item.entrada, item.arvore, item.nome, item.formato, item.taxa, (e, t) -> FilaDeDownload.etapa(atual, e, t));
+                r = Baixador.baixar(this, item.entrada, item.arvore, item.nome, item.formato, item.taxa, new Baixador.Etapas() {
+                    @Override public void etapa(int e, String t) { FilaDeDownload.etapa(atual, e, t); }
+                    @Override public void andamento(int porcento) { FilaDeDownload.andamento(atual, porcento); }
+                });
             } catch (Throwable e) {
                 r = new Baixador.Resultado(false, "Não consegui baixar essa música.");
             }

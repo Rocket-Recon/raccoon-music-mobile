@@ -21,6 +21,8 @@ public final class FilaDeDownload {
         public volatile int estado = PENDENTE;
         public volatile String mensagem = "";
         public volatile int etapa = ETAPA_PREPARANDO;
+        /** Porcentagem real do download informada pelo yt-dlp; -1 enquanto não há. */
+        public volatile int progresso = -1;
         public volatile String titulo = "";
 
         Item(int id, String entrada, String nome, String arvore, String formato, int taxa) {
@@ -43,6 +45,7 @@ public final class FilaDeDownload {
             if (estado == OK) return 100;
             if (estado == PENDENTE) return 0;
             if (estado == ERRO) return 0;
+            if (etapa == ETAPA_BAIXANDO && progresso >= 0) return 8 + (int) Math.round(progresso * 0.84);
             return etapa == ETAPA_PREPARANDO ? 8 : (etapa == ETAPA_BAIXANDO ? 50 : 92);
         }
 
@@ -128,6 +131,13 @@ public final class FilaDeDownload {
             item.titulo = titulo;
             anotar("Baixando: " + titulo);
         }
+        avisar();
+    }
+
+    /** Registra a porcentagem real do download; só avisa quando o número muda. */
+    public static void andamento(Item item, int porcento) {
+        if (item.progresso == porcento) return;
+        item.progresso = porcento;
         avisar();
     }
 

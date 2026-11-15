@@ -277,6 +277,46 @@ public final class Baixador {
     /** Recebe as mudanças de etapa de um download (ver FilaDeDownload.ETAPA_*). */
     public interface Etapas {
         void etapa(int etapa, String titulo);
+
+        /** Andamento real do download, de 0 a 100, lido da saída do yt-dlp. */
+        default void andamento(int porcento) {}
+    }
+
+    /** Recebe o andamento (0 a 100) que o yt-dlp informa durante o download. */
+    private interface Andamento {
+        void porcento(int valor);
+    }
+
+    /** Roda o yt-dlp informando o andamento; se esta versão da biblioteca não aceitar o retorno de andamento, roda sem ele. */
+    private static void executarComAndamento(Context contexto, YoutubeDLRequest pedido, final Andamento ouvinte) throws Exception {
+        Method chamada = null;
+        Class<?> funcao = null;
+        try {
+            funcao = Class.forName("kotlin.jvm.functions.Function3");
+            for (Method m : YoutubeDL.class.getMethods()) {
+                Class<?>[] t = m.getParameterTypes();
+                if (m.getName().equals("execute") && t.length == 4 && t[3] == funcao) chamada = m;
+            }
+        } catch (Throwable e) {
+            chamada = null;
+        }
+        if (chamada == null || ouvinte == null) {
+            executar(contexto, pedido);
+            return;
+        }
+        Object retorno = java.lang.reflect.Proxy.newProxyInstance(funcao.getClassLoader(), new Class<?>[] {funcao}, (proxy, metodo, args) -> {
+            if (metodo.getName().equals("invoke") && args != null && args.length > 0 && args[0] instanceof Number) {
+                ouvinte.porcento(Math.max(0, Math.min(100, Math.round(((Number) args[0]).floatValue()))));
+            }
+            return null;
+        });
+        try {
+            chamada.invoke(YoutubeDL.getInstance(), pedido, null, Boolean.FALSE, retorno);
+        } catch (java.lang.reflect.InvocationTargetException e) {
+            Throwable causa = e.getCause();
+            if (!atualizarSeDeu(contexto)) throw causa instanceof Exception ? (Exception) causa : e;
+            executar(contexto, pedido);
+        }
     }
 
     public static Resultado baixar(Context contexto, String texto, String arvore, String nome, String formato, int taxa) {
@@ -357,7 +397,8 @@ public final class Baixador {
                     pedido.addOption("--windows-filenames");
                     pedido.addOption("--trim-filenames", String.valueOf(Pedido.MAX_NOME));
                     pedido.addOption("-o", Pedido.modelo(temporaria.getAbsolutePath(), nomeFinal));
-                    executar(contexto, pedido);
+                    final Etapas quem = avisos;
+                    executarComAndamento(contexto, pedido, quem == null ? null : quem::andamento);
                 } catch (Exception e) {
                     erro = e;
                 }
