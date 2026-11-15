@@ -4976,7 +4976,144 @@ public class MainActivity extends Activity {
             dialogoDoLote(pedidos, new ArrayList<String>());
             return;
         }
-        // a busca do nome aparece na barra da tela de download; sem ela aberta, só segue para a pergunta
+        final boolean[] cancelado = {false};
+        final AlertDialog espera = new Construtor()
+                .setMessage("Lendo a playlist…")
+                .setNegativeButton("Cancelar", (d, q) -> cancelado[0] = true)
+                .setOnCancelListener(d -> cancelado[0] = true)
+                .show();
+        new Thread(() -> {
+            final List<String> entradas = new ArrayList<>();
+            final List<String> titulos = new ArrayList<>();
+            for (String p : pedidos) {
+                if (cancelado[0]) return;
+                if (Pedido.ehPlaylist(p)) {
+                    for (Baixador.Entrada e : Baixador.expandirPlaylist(this, p)) {
+                        entradas.add(e.url);
+                        titulos.add(e.titulo);
+                    }
+                } else {
+                    entradas.add(p);
+                    titulos.add("");
+                }
+            }
+            ui.post(() -> {
+                if (cancelado[0] || isFinishing()) return;
+                espera.dismiss();
+                if (entradas.isEmpty()) {
+                    Toast.makeText(this, "Não consegui ler a playlist.", Toast.LENGTH_LONG).show();
+                    return;
+                }
+                dialogoDoLote(entradas, titulos);
+            });
+        }).start();
+    }
+
+    /** Uma linha do diálogo do lote. */
+    private static final class LinhaDoLote {
+        String entrada;
+        String titulo;
+        EditText campo;
+        View vista;
+        boolean removida;
+    }
+
+    /** Mostra o lote: cada música com um nome editável (vazio = automático) e um ✕ para tirar da lista. */
+    private void dialogoDoLote(final List<String> entradas, final List<String> titulos) {
+        final int total = entradas.size();
+        if (total > 80) {
+            new Construtor()
+                    .setTitle("Baixar " + total + " músicas?")
+                    .setMessage("Os nomes ficam automáticos (Artista - Título). Elas entram na fila e baixam duas por vez.")
+                    .setPositiveButton("Baixar tudo", (d, q) -> colocarNaFila(entradas, null))
+                    .setNegativeButton("Cancelar", null)
+                    .show();
+            return;
+        }
+        final List<LinhaDoLote> linhas = new ArrayList<>();
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setPadding(dp(18), dp(8), dp(18), 0);
+
+        LinearLayout acoes = new LinearLayout(this);
+        TextView preencher = texto(13, ACENTO, true);
+        preencher.setText("Preencher com os títulos");
+        preencher.setPadding(0, dp(6), dp(16), dp(10));
+        TextView automatico = texto(13, ACENTO, true);
+        automatico.setText("Deixar automático");
+        automatico.setPadding(0, dp(6), 0, dp(10));
+        acoes.addView(preencher);
+        acoes.addView(automatico);
+        col.addView(acoes);
+
+        final LinearLayout lista = new LinearLayout(this);
+        lista.setOrientation(LinearLayout.VERTICAL);
+        for (int i = 0; i < total; i++) {
+            final LinhaDoLote l = new LinhaDoLote();
+            l.entrada = entradas.get(i);
+            l.titulo = i < titulos.size() ? titulos.get(i) : "";
+            LinearLayout linha = new LinearLayout(this);
+            linha.setGravity(Gravity.CENTER_VERTICAL);
+            l.campo = new EditText(this);
+            l.campo.setSingleLine(true);
+            l.campo.setTextColor(temaClaro ? 0xFF18181B : 0xFFFFFFFF);
+            l.campo.setHintTextColor(SUAVE);
+            l.campo.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+            l.campo.setHint(l.titulo.isEmpty() ? l.entrada : l.titulo);
+            linha.addView(l.campo, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            TextView tirar = texto(18, SUAVE, true);
+            tirar.setText("✕");
+            tirar.setGravity(Gravity.CENTER);
+            tirar.setPadding(dp(12), dp(8), dp(4), dp(8));
+            tirar.setOnClickListener(v -> {
+                l.removida = true;
+                l.vista.setVisibility(View.GONE);
+            });
+            linha.addView(tirar);
+            l.vista = linha;
+            lista.addView(linha);
+            linhas.add(l);
+        }
+        col.addView(lista);
+        preencher.setOnClickListener(v -> {
+            for (LinhaDoLote l : linhas) {
+                if (!l.titulo.isEmpty()) l.campo.setText(Limpeza.nomeSugerido("NA", "NA", l.titulo));
+            }
+        });
+        automatico.setOnClickListener(v -> {
+            for (LinhaDoLote l : linhas) l.campo.setText("");
+        });
+        ScrollView rolagem = new ScrollView(this);
+        rolagem.addView(col);
+        new Construtor()
+                .setTitle(total + " músicas")
+                .setView(rolagem)
+                .setPositiveButton("Baixar tudo", (d, q) -> {
+                    List<String> e = new ArrayList<>();
+                    List<String> nomes = new ArrayList<>();
+                    for (LinhaDoLote l : linhas) {
+                        if (l.removida) continue;
+                        e.add(l.entrada);
+                        nomes.add(Pedido.nomeDoArquivo(l.campo.getText().toString()));
+                    }
+                    if (e.isEmpty()) return;
+                    colocarNaFila(e, nomes);
+                })
+                .setNegativeButton("Cancelar", null)
+                .show();
+    }
+
+    /** Com a pergunta ligada, busca o titulo e deixa a pessoa renomear antes de baixar. */
+    private void iniciarDownload(final String texto) {
+        if (Pedido.entrada(texto).isEmpty()) {
+            Toast.makeText(this, "Escreva um link ou o nome da música.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (!prefs.baixarPerguntarNome()) {
+            enviarDownload(texto, "");
+            return;
+        }
+        // a busca do nome aparece na barra da tela de download
         final boolean[] cancelado = {false};
         buscaDoNome = cancelado;
         if (redesenharFila != null) redesenharFila.run();
