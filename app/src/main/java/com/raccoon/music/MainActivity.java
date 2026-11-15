@@ -2109,6 +2109,22 @@ public class MainActivity extends Activity {
         return c;
     }
 
+    /** Cartão de destaque (música mais tocada, artista mais ouvido): rótulo pequeno e o nome rolando em uma linha, sempre com a mesma altura. */
+    private LinearLayout cartaoDeDestaque(String rotulo, String nome) {
+        LinearLayout c = new LinearLayout(this);
+        c.setOrientation(LinearLayout.VERTICAL);
+        c.setBackground(forma(FUNDO, 14, LINHA));
+        c.setPadding(dp(14), dp(10), dp(14), dp(10));
+        c.setMinimumHeight(dp(64));
+        TextView r = texto(12, SUAVE, false);
+        r.setText(rotulo);
+        TextView n = rolante(15, ACENTO, true);
+        n.setText(nome);
+        c.addView(r);
+        c.addView(n);
+        return c;
+    }
+
     private void linhaDeCartoes(LinearLayout pai, LinearLayout a, LinearLayout b) {
         LinearLayout l = new LinearLayout(this);
         LinearLayout.LayoutParams pa = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
@@ -2129,10 +2145,8 @@ public class MainActivity extends Activity {
         TextView p = texto(14, ACENTO, true);
         p.setText(String.valueOf(posicao));
         l.addView(p, new LinearLayout.LayoutParams(dp(22), ViewGroup.LayoutParams.WRAP_CONTENT));
-        TextView n = texto(15, TEXTO, false);
+        TextView n = rolante(15, TEXTO, false);  // nome longo rola dentro da linha, como nas Estatísticas do PC
         n.setText(nome);
-        n.setSingleLine(true);
-        n.setEllipsize(android.text.TextUtils.TruncateAt.END);
         l.addView(n, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         TextView d = texto(13, SUAVE, false);
         d.setText(detalhe);
@@ -2159,6 +2173,10 @@ public class MainActivity extends Activity {
         linhaDeCartoes(col, cartaoDeNumero(String.valueOf(curtidas.size()), "curtidas"), cartaoDeNumero(String.valueOf(historico.totalDeVezes()), "reproduções"));
         linhaDeCartoes(col, cartaoDeNumero(Historico.duracao(historico.tempoTotalMs()), "tempo ouvido"), cartaoDeNumero(String.valueOf(minhas.nomes().size()), "playlists"));
         List<Faixa> top = historico.maisTocadas(todas, 5);
+        List<String[]> destaqueBandas = historico.bandasMaisOuvidas(todas, 1);
+        if (!top.isEmpty() && !destaqueBandas.isEmpty()) {
+            linhaDeCartoes(col, cartaoDeDestaque("Música mais tocada", top.get(0).titulo), cartaoDeDestaque("Artista mais ouvido", destaqueBandas.get(0)[0]));
+        }
         if (!top.isEmpty()) {
             tituloDeLista(col, "Mais tocadas");
             for (int i = 0; i < top.size(); i++) {
@@ -3024,10 +3042,7 @@ public class MainActivity extends Activity {
         if (cartaoBaixar == null) cartaoBaixar = montarCartaoBaixar();
         LinearLayout.LayoutParams pb = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         pb.setMargins(0, 0, 0, dp(12));
-        TextView principais = texto(18, TEXTO, true);
-        principais.setText("Principais recursos");
-        principais.setPadding(dp(2), dp(8), 0, dp(10));
-        c.addView(principais);
+        c.addView(fileiraDoTopo(), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         c.addView(cartaoBaixar, pb);
 
         LinearLayout resumo = new LinearLayout(this);
@@ -3069,6 +3084,111 @@ public class MainActivity extends Activity {
         carrosselDoInicio(c, "Mais tocadas", historico.maisTocadas(todas, LIMITE_DAS_LISTAS), SECAO_MAIS, null, null);
         carrosselDoInicio(c, "Menos tocadas", historico.menosTocadas(todas, LIMITE_DAS_LISTAS), SECAO_MENOS, null, null);
         carrosselDoInicio(c, "Nunca tocadas", historico.nuncaTocadas(todas), SECAO_NUNCA, null, null);
+    }
+
+    /** Botões do topo da janela do PC (Player, Ajustes, Estatísticas, Informações, PC, Perfil) em duas fileiras de três. */
+    private LinearLayout fileiraDoTopo() {
+        String[] nomes = {"Player", "Ajustes", "Estatísticas", "Informações", "PC", "Perfil"};
+        Runnable[] acoes = {this::abrirTocando, this::menuDeAjustes, this::mostrarEstatisticas, this::abrirInformacoes, this::menuDoPc, this::menuDaConta};
+        LinearLayout todos = new LinearLayout(this);
+        todos.setOrientation(LinearLayout.VERTICAL);
+        for (int linha = 0; linha < 2; linha++) {
+            LinearLayout fila = new LinearLayout(this);
+            for (int i = 0; i < 3; i++) {
+                final Runnable acao = acoes[linha * 3 + i];
+                TextView b = botaoDoPc(nomes[linha * 3 + i], NEUTRO);
+                b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+                b.setPadding(dp(4), dp(9), dp(4), dp(9));
+                b.setOnClickListener(v -> acao.run());
+                LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+                p.setMargins(i == 0 ? 0 : dp(3), 0, i == 2 ? 0 : dp(3), 0);
+                fila.addView(b, p);
+            }
+            LinearLayout.LayoutParams pf = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            pf.setMargins(0, 0, 0, dp(6));
+            todos.addView(fila, pf);
+        }
+        return todos;
+    }
+
+    /** O botão "PC" do topo: o que o celular faz com o Raccoon Music do computador. */
+    private void menuDoPc() {
+        String[] nomes = {"Baixar no PC", "Enviar ao PC", "Sincronizar com a conta"};
+        new Construtor().setTitle("PC").setItems(nomes, (d, qual) -> {
+            if (qual == 0) baixarNoPc();
+            else if (qual == 1) enviarAoPc();
+            else sincronizarComConta();
+        }).setNegativeButton("Fechar", null).show();
+    }
+
+    /** Página Informações (abas em ordem alfabética, como no PC): Recursos e Sobre. */
+    private void abrirInformacoes() {
+        final LinearLayout raizInfo = new LinearLayout(this);
+        raizInfo.setOrientation(LinearLayout.VERTICAL);
+        raizInfo.setPadding(dp(16), dp(8), dp(16), 0);
+        final LinearLayout abas = new LinearLayout(this);
+        final FrameLayout corpo = new FrameLayout(this);
+        final String[] nomes = {"Recursos", "Sobre"};
+        final TextView[] chips = new TextView[nomes.length];
+        final View[] paginas = new View[nomes.length];
+
+        LinearLayout lista = new LinearLayout(this);
+        lista.setOrientation(LinearLayout.VERTICAL);
+        for (String[] area : Recursos.SECOES) {
+            LinearLayout cartao = new LinearLayout(this);
+            cartao.setOrientation(LinearLayout.VERTICAL);
+            cartao.setPadding(dp(14), dp(10), dp(14), dp(10));
+            cartao.setBackground(forma(CARTAO, 12, BRANCO));
+            TextView t = texto(14, TEXTO, true);
+            t.setText(area[0]);
+            t.setPadding(0, 0, 0, dp(4));
+            cartao.addView(t);
+            for (int i = 1; i + 1 < area.length; i += 2) {
+                TextView n = texto(13, TEXTO, true);
+                n.setText(area[i]);
+                n.setPadding(0, dp(6), 0, 0);
+                TextView d = texto(12, SUAVE, false);
+                d.setSingleLine(false);
+                d.setText(area[i + 1]);
+                cartao.addView(n);
+                cartao.addView(d);
+            }
+            LinearLayout.LayoutParams pc = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            pc.setMargins(0, 0, 0, dp(10));
+            lista.addView(cartao, pc);
+        }
+        ScrollView rolagem = new ScrollView(this);
+        rolagem.addView(lista);
+        paginas[0] = rolagem;
+
+        TextView sobre = texto(13, TEXTO, false);
+        sobre.setSingleLine(false);
+        sobre.setText("Raccoon Music\nVersão " + Atualizador.instalada(this) + "\n\nO mesmo player do computador, com a biblioteca, as listas e o download no celular.");
+        sobre.setPadding(dp(4), dp(8), dp(4), 0);
+        paginas[1] = sobre;
+
+        for (int i = 0; i < nomes.length; i++) {
+            final int n = i;
+            TextView c = botaoDoPc(nomes[i], NEUTRO);
+            c.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+            c.setOnClickListener(v -> {
+                for (int k = 0; k < paginas.length; k++) {
+                    paginas[k].setVisibility(k == n ? View.VISIBLE : View.GONE);
+                    chips[k].setBackground(toque(forma(k == n ? ACENTO : NEUTRO, 8, BRANCO), forma(0x33FFFFFF, 8, BRANCO)));
+                }
+            });
+            chips[i] = c;
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            p.setMargins(i == 0 ? 0 : dp(3), 0, i == nomes.length - 1 ? 0 : dp(3), 0);
+            abas.addView(c, p);
+            corpo.addView(paginas[i], new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
+        LinearLayout.LayoutParams pa = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        pa.setMargins(0, 0, 0, dp(10));
+        raizInfo.addView(abas, pa);
+        raizInfo.addView(corpo, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(420)));
+        chips[0].performClick();
+        new Construtor().setTitle("Informações").setView(raizInfo).setNegativeButton("Fechar", null).show();
     }
 
     /** Escolhe o período de "Músicas novas" (1 semana a 1 ano). */
@@ -3364,9 +3484,21 @@ public class MainActivity extends Activity {
                     d.getWindow().setBackgroundDrawable(new android.graphics.drawable.InsetDrawable(forma(CARTAO, 22, LINHA), dp(6)));
                 }
                 int[] botoes = {AlertDialog.BUTTON_POSITIVE, AlertDialog.BUTTON_NEGATIVE, AlertDialog.BUTTON_NEUTRAL};
+                TextView principal = d.getButton(AlertDialog.BUTTON_POSITIVE);
+                String acao = principal == null ? "" : principal.getText().toString().toLowerCase(java.util.Locale.ROOT);
+                boolean exclusao = acao.startsWith("excluir") || acao.startsWith("apagar") || acao.startsWith("remover") || acao.startsWith("descartar");
                 for (int b : botoes) {
                     TextView t = d.getButton(b);
-                    if (t != null) t.setTextColor(b == AlertDialog.BUTTON_POSITIVE ? ACENTO : SUAVE);
+                    if (t == null) continue;
+                    // botões no desenho do PC: cheios, borda branca; a ação principal na cor do app (vermelha ao excluir), as demais no cinza neutro
+                    int cor = b == AlertDialog.BUTTON_POSITIVE ? (exclusao ? VERMELHO : ACENTO) : NEUTRO;
+                    t.setTextColor(BRANCO);
+                    t.setTypeface(null, android.graphics.Typeface.BOLD);
+                    t.setAllCaps(false);
+                    t.setBackground(toque(forma(cor, 8, BRANCO), forma(0x33FFFFFF, 8, BRANCO)));
+                    t.setPadding(dp(14), dp(8), dp(14), dp(8));
+                    ViewGroup.LayoutParams lp = t.getLayoutParams();
+                    if (lp instanceof ViewGroup.MarginLayoutParams) ((ViewGroup.MarginLayoutParams) lp).setMargins(dp(4), dp(4), dp(4), dp(4));
                 }
                 int idTitulo = getResources().getIdentifier("alertTitle", "id", "android");
                 View titulo = idTitulo == 0 ? null : d.findViewById(idTitulo);
@@ -3865,7 +3997,7 @@ public class MainActivity extends Activity {
         cab.addView(celulaMenu, new LinearLayout.LayoutParams(dp(52), dp(52)));
         LinearLayout titulos = new LinearLayout(this);
         titulos.setOrientation(LinearLayout.VERTICAL);
-        lblSecao = texto(22, TEXTO, true);
+        lblSecao = texto(19, TEXTO, true);
         lblSecao.setText(NOMES_SECAO[secao]);
         lblContagem = texto(13, SUAVE, false);
         titulos.addView(lblSecao);
