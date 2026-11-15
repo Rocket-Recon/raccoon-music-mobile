@@ -3042,7 +3042,10 @@ public class MainActivity extends Activity {
         if (cartaoBaixar == null) cartaoBaixar = montarCartaoBaixar();
         LinearLayout.LayoutParams pb = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         pb.setMargins(0, 0, 0, dp(12));
-        c.addView(fileiraDoTopo(), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        TextView principais = texto(18, TEXTO, true);
+        principais.setText("Principais recursos");
+        principais.setPadding(dp(2), dp(8), 0, dp(10));
+        c.addView(principais);
         c.addView(cartaoBaixar, pb);
 
         LinearLayout resumo = new LinearLayout(this);
@@ -3084,111 +3087,6 @@ public class MainActivity extends Activity {
         carrosselDoInicio(c, "Mais tocadas", historico.maisTocadas(todas, LIMITE_DAS_LISTAS), SECAO_MAIS, null, null);
         carrosselDoInicio(c, "Menos tocadas", historico.menosTocadas(todas, LIMITE_DAS_LISTAS), SECAO_MENOS, null, null);
         carrosselDoInicio(c, "Nunca tocadas", historico.nuncaTocadas(todas), SECAO_NUNCA, null, null);
-    }
-
-    /** Botões do topo da janela do PC (Player, Ajustes, Estatísticas, Informações, PC, Perfil) em duas fileiras de três. */
-    private LinearLayout fileiraDoTopo() {
-        String[] nomes = {"Player", "Ajustes", "Estatísticas", "Informações", "PC", "Perfil"};
-        Runnable[] acoes = {this::abrirTocando, this::menuDeAjustes, this::mostrarEstatisticas, this::abrirInformacoes, this::menuDoPc, this::menuDaConta};
-        LinearLayout todos = new LinearLayout(this);
-        todos.setOrientation(LinearLayout.VERTICAL);
-        for (int linha = 0; linha < 2; linha++) {
-            LinearLayout fila = new LinearLayout(this);
-            for (int i = 0; i < 3; i++) {
-                final Runnable acao = acoes[linha * 3 + i];
-                TextView b = botaoDoPc(nomes[linha * 3 + i], NEUTRO);
-                b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-                b.setPadding(dp(4), dp(9), dp(4), dp(9));
-                b.setOnClickListener(v -> acao.run());
-                LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-                p.setMargins(i == 0 ? 0 : dp(3), 0, i == 2 ? 0 : dp(3), 0);
-                fila.addView(b, p);
-            }
-            LinearLayout.LayoutParams pf = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            pf.setMargins(0, 0, 0, dp(6));
-            todos.addView(fila, pf);
-        }
-        return todos;
-    }
-
-    /** O botão "PC" do topo: o que o celular faz com o Raccoon Music do computador. */
-    private void menuDoPc() {
-        String[] nomes = {"Baixar no PC", "Enviar ao PC", "Sincronizar com a conta"};
-        new Construtor().setTitle("PC").setItems(nomes, (d, qual) -> {
-            if (qual == 0) baixarNoPc();
-            else if (qual == 1) enviarAoPc();
-            else sincronizarComConta();
-        }).setNegativeButton("Fechar", null).show();
-    }
-
-    /** Página Informações (abas em ordem alfabética, como no PC): Recursos e Sobre. */
-    private void abrirInformacoes() {
-        final LinearLayout raizInfo = new LinearLayout(this);
-        raizInfo.setOrientation(LinearLayout.VERTICAL);
-        raizInfo.setPadding(dp(16), dp(8), dp(16), 0);
-        final LinearLayout abas = new LinearLayout(this);
-        final FrameLayout corpo = new FrameLayout(this);
-        final String[] nomes = {"Recursos", "Sobre"};
-        final TextView[] chips = new TextView[nomes.length];
-        final View[] paginas = new View[nomes.length];
-
-        LinearLayout lista = new LinearLayout(this);
-        lista.setOrientation(LinearLayout.VERTICAL);
-        for (String[] area : Recursos.SECOES) {
-            LinearLayout cartao = new LinearLayout(this);
-            cartao.setOrientation(LinearLayout.VERTICAL);
-            cartao.setPadding(dp(14), dp(10), dp(14), dp(10));
-            cartao.setBackground(forma(CARTAO, 12, BRANCO));
-            TextView t = texto(14, TEXTO, true);
-            t.setText(area[0]);
-            t.setPadding(0, 0, 0, dp(4));
-            cartao.addView(t);
-            for (int i = 1; i + 1 < area.length; i += 2) {
-                TextView n = texto(13, TEXTO, true);
-                n.setText(area[i]);
-                n.setPadding(0, dp(6), 0, 0);
-                TextView d = texto(12, SUAVE, false);
-                d.setSingleLine(false);
-                d.setText(area[i + 1]);
-                cartao.addView(n);
-                cartao.addView(d);
-            }
-            LinearLayout.LayoutParams pc = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            pc.setMargins(0, 0, 0, dp(10));
-            lista.addView(cartao, pc);
-        }
-        ScrollView rolagem = new ScrollView(this);
-        rolagem.addView(lista);
-        paginas[0] = rolagem;
-
-        TextView sobre = texto(13, TEXTO, false);
-        sobre.setSingleLine(false);
-        sobre.setText("Raccoon Music\nVersão " + Atualizador.instalada(this) + "\n\nO mesmo player do computador, com a biblioteca, as listas e o download no celular.");
-        sobre.setPadding(dp(4), dp(8), dp(4), 0);
-        paginas[1] = sobre;
-
-        for (int i = 0; i < nomes.length; i++) {
-            final int n = i;
-            TextView c = botaoDoPc(nomes[i], NEUTRO);
-            c.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-            c.setOnClickListener(v -> {
-                for (int k = 0; k < paginas.length; k++) {
-                    paginas[k].setVisibility(k == n ? View.VISIBLE : View.GONE);
-                    chips[k].setBackground(toque(forma(k == n ? ACENTO : NEUTRO, 8, BRANCO), forma(0x33FFFFFF, 8, BRANCO)));
-                }
-            });
-            chips[i] = c;
-            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-            p.setMargins(i == 0 ? 0 : dp(3), 0, i == nomes.length - 1 ? 0 : dp(3), 0);
-            abas.addView(c, p);
-            corpo.addView(paginas[i], new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        }
-        LinearLayout.LayoutParams pa = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        pa.setMargins(0, 0, 0, dp(10));
-        raizInfo.addView(abas, pa);
-        raizInfo.addView(corpo, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(420)));
-        chips[0].performClick();
-        new Construtor().setTitle("Informações").setView(raizInfo).setNegativeButton("Fechar", null).show();
     }
 
     /** Escolhe o período de "Músicas novas" (1 semana a 1 ano). */
@@ -3997,7 +3895,7 @@ public class MainActivity extends Activity {
         cab.addView(celulaMenu, new LinearLayout.LayoutParams(dp(52), dp(52)));
         LinearLayout titulos = new LinearLayout(this);
         titulos.setOrientation(LinearLayout.VERTICAL);
-        lblSecao = texto(19, TEXTO, true);
+        lblSecao = texto(22, TEXTO, true);
         lblSecao.setText(NOMES_SECAO[secao]);
         lblContagem = texto(13, SUAVE, false);
         titulos.addView(lblSecao);
